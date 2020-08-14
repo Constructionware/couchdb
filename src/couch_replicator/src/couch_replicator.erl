@@ -29,7 +29,8 @@
     rescan_jobs/0,
     rescan_jobs/1,
     reenqueue_jobs/0,
-    reenqueue_jobs/1
+    reenqueue_jobs/1,
+    remove_jobs/0
 ]).
 
 
@@ -201,6 +202,20 @@ reenqueue_jobs(DbName) when is_binary(DbName), ?IS_REP_DB(DbName) ->
             database_does_not_exist
     end.
 
+
+remove_jobs() ->
+    % If we clear a large number of jobs make sure to use batching so we don't
+    % take too long, if use individual transactions, and also don't timeout if
+    % use a single transaction
+    FoldFun = fun
+        (_, JobId, _, _, Acc) when length(Acc) > 250 ->
+            couch_replicator_jobs:remove_jobs(undefined, [JobId | Acc]);
+        (_, JobId, _, _, Acc) ->
+            [JobId | Acc]
+    end,
+    Acc = couch_replicator_jobs:fold_jobs(undefined, FoldFun, []),
+    [] = couch_replicator_jobs:remove_jobs(undefined, Acc),
+    ok.
 
 % Private functions
 

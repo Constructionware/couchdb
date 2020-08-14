@@ -171,7 +171,7 @@ reschedule(#{} = St) ->
 
     Pending = if MinSlotsChurn =< 0 -> 0; true ->
         % Don't fetch pending if we don't have enough slots or churn budget
-        couch_replicator_jobs:pending_count(undefined)
+        couch_replicator_jobs:pending_count(undefined, MinSlotsChurn)
     end,
 
     couch_stats:update_gauge([couch_replicator, jobs, pending], Pending),

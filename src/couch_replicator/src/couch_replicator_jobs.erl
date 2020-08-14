@@ -24,7 +24,6 @@
     remove_job/2,
     get_job_data/2,
     fold_jobs/3,
-    pending_count/1,
     pending_count/2,
 
     % Job subscription
@@ -40,7 +39,10 @@
     try_update_rep_id/3,
     update_rep_id/3,
     clear_old_rep_id/3,
-    get_job_id/2
+    get_job_id/2,
+
+    % Debug functions
+    remove_jobs/2
 ]).
 
 
@@ -130,7 +132,7 @@ get_job_data(Tx, JobId) ->
     end).
 
 
-% UserFun(JTx, JobId, JobState, JobData, UserAcc)
+% UserFun = fun(JTx, JobId, JobState, JobData, UserAcc)
 %
 fold_jobs(Tx, UserFun, Acc) when is_function(UserFun, 5) ->
     couch_jobs_fdb:tx(couch_jobs_fdb:get_jtx(Tx), fun(JTx) ->
@@ -138,13 +140,15 @@ fold_jobs(Tx, UserFun, Acc) when is_function(UserFun, 5) ->
     end).
 
 
-pending_count(Tx) ->
-    MaxSchedTime = erlang:system_time(second),
-    pending_count(Tx, MaxSchedTime).
+pending_count(_Tx, Limit) when is_integer(Limit), Limit =< 0 ->
+    0;
 
-
-pending_count(Tx, MaxSchedTime) when is_integer(MaxSchedTime) ->
-    couch_jobs:pending_count(Tx, ?REP_JOBS, #{max_sched_time => MaxSchedTime}).
+pending_count(Tx, Limit) when is_integer(Limit), Limit > 0 ->
+    Opts = #{
+        max_sched_time => erlang:system_time(second),
+        limit => Limit
+    },
+    couch_jobs:pending_count(Tx, ?REP_JOBS, Opts).
 
 
 wait_for_result(JobId) ->
@@ -247,6 +251,15 @@ get_job_id(Tx, RepId) ->
                 {ok, JobId}
         end
    end).
+
+
+% Debug function
+
+remove_jobs(Tx, JobIds) when is_list(JobIds) ->
+    couch_jobs_fdb:tx(couch_jobs_fdb:get_jtx(Tx), fun(JTx) ->
+        lists:foreach(fun(JobId) -> remove_job(JTx, JobId) end, JobIds)
+    end),
+    [].
 
 
 % Private functions
