@@ -47,7 +47,7 @@
 replicate(Body, #user_ctx{name = User} = UserCtx) ->
     {ok, Id, Rep} = couch_replicator_parse:parse_transient_rep(Body, User),
     #{?OPTIONS := Options} = Rep,
-     JobId = case couch_replicator_jobs:get_job_id(undefined, Id) of
+    JobId = case couch_replicator_jobs:get_job_id(undefined, Id) of
         {ok, JobId0} -> JobId0;
         {error, not_found} -> Id
     end,
@@ -78,8 +78,12 @@ jobs() ->
     couch_replicator_jobs:fold_jobs(undefined, FoldFun, []).
 
 
-job(JobId0) when is_binary(JobId0) ->
-    JobId = couch_replicator_ids:convert(JobId0),
+job(Id0) when is_binary(Id0) ->
+    Id1 = couch_replicator_ids:convert(Id0),
+    JobId = case couch_replicator_jobs:get_job_id(undefined, Id1) of
+        {ok, JobId0} -> JobId0;
+        {error, not_found} -> Id1
+    end,
     case couch_replicator_jobs:get_job_data(undefined, JobId) of
         {ok, #{} = JobData} -> {ok, job_ejson(JobData)};
         {error, not_found} -> {error, not_found}
