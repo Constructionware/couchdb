@@ -27,7 +27,8 @@
     pending_count/2,
 
     % Job subscription
-    wait_for_result/1,
+    wait_running/1,
+    wait_result/1,
 
     % Job execution
     accept_job/1,
@@ -42,7 +43,8 @@
     get_job_id/2,
 
     % Debug functions
-    remove_jobs/2
+    remove_jobs/2,
+    get_job_ids/1
 ]).
 
 
@@ -151,27 +153,45 @@ pending_count(Tx, Limit) when is_integer(Limit), Limit > 0 ->
     couch_jobs:pending_count(Tx, ?REP_JOBS, Opts).
 
 
-wait_for_result(JobId) ->
-    FinishRes = case couch_jobs:subscribe(?REP_JOBS, JobId) of
+wait_running(JobId) ->
+    case couch_jobs:subscribe(?REP_JOBS, JobId) of
+        {ok, finished, JobData} ->
+            {ok, JobData};
+        {ok, SubId, running, #{?STATE := ?ST_PENDING}} ->
+            wait_running(JobId, SubId);
+        {ok, SubId, running, JobData} ->
+            ok = couch_jobs:unsubscribe(SubId),
+            {ok, JobData};
+        {ok, SubId, pending, _} ->
+            wait_running(JobId, SubId);
+         {error, Error} ->
+             {error, Error}
+    end.
+
+
+wait_running(JobId, SubId) ->
+    case couch_jobs:wait(SubId, running, infinity) of
+        {?REP_JOBS, _, running, #{?STATE := ?ST_PENDING}} ->
+            wait_running(JobId, SubId);
+        {?REP_JOBS, _, running, JobData} ->
+             ok = couch_jobs:unsubscribe(SubId),
+             {ok, JobData};
+         {?REP_JOBS, _, finished, JobData} ->
+             ok = couch_jobs:unsubscribe(SubId),
+             {ok, JobData}
+     end.
+
+
+wait_result(JobId) ->
+    case couch_jobs:subscribe(?REP_JOBS, JobId) of
         {ok, finished, JobData} ->
             {ok, JobData};
         {ok, SubId, _, _} ->
             case couch_jobs:wait(SubId, finished, infinity) of
-                {?REP_JOBS, _, finished, JobData} -> {ok, JobData};
-                timeout -> timeout
+                {?REP_JOBS, _, finished, JobData} -> {ok, JobData}
             end;
         {error, Error} ->
             {error, Error}
-    end,
-    case FinishRes of
-       {ok, #{?STATE := ?ST_COMPLETED, ?STATE_INFO := CheckpointHistory}} ->
-            {ok, CheckpointHistory};
-       {ok, #{?STATE_INFO := Err}} ->
-            {error, Err};
-       timeout ->
-            {error, timeout};
-       {error, Err} ->
-            {error, Err}
     end.
 
 
@@ -260,6 +280,18 @@ remove_jobs(Tx, JobIds) when is_list(JobIds) ->
         lists:foreach(fun(JobId) -> remove_job(JTx, JobId) end, JobIds)
     end),
     [].
+
+
+get_job_ids(Tx) ->
+    couch_jobs_fdb:tx(couch_jobs_fdb:get_jtx(Tx), fun(JTx) ->
+        #{tx := ErlFdbTx, layer_prefix := LayerPrefix} = JTx,
+        Prefix = erlfdb_tuple:pack({?REPLICATION_IDS}, LayerPrefix),
+        KVs = erlfdb:wait(erlfdb:get_range_startswith(ErlFdbTx, Prefix)),
+        lists:map(fun({K, JobId}) ->
+            {RepId} = erlfdb_tuple:unpack(K, Prefix),
+            {RepId, JobId}
+        end, KVs)
+    end).
 
 
 % Private functions
