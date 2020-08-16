@@ -30,7 +30,8 @@
     rescan_jobs/1,
     reenqueue_jobs/0,
     reenqueue_jobs/1,
-    remove_jobs/0
+    remove_jobs/0,
+    get_job_ids/0
 ]).
 
 
@@ -61,8 +62,24 @@ replicate(Body, #user_ctx{name = User} = UserCtx) ->
             check_authorization(JobId, UserCtx),
             ok = start_transient_job(JobId, Rep),
             case maps:get(<<"continuous">>, Options, false) of
-                true -> {ok, {continuous, JobId}};
-                false -> couch_replicator_jobs:wait_for_result(JobId)
+                true ->
+                    case couch_replicator_jobs:wait_running(JobId) of
+                        {ok, #{?STATE := ?ST_RUNNING} = JobData} ->
+                            {ok, {continuous, maps:get(?REP_ID, JobData)}};
+                        {ok, #{?STATE := ?ST_FAILED} = JobData} ->
+                            {error, maps:get(?STATE_INFO, JobData)};
+                        {error, Error} ->
+                            {error, Error}
+                    end;
+                false ->
+                    case couch_replicator_jobs:wait_result(JobId) of
+                        {ok, #{?STATE := ?ST_COMPLETED} = JobData} ->
+                            {ok, maps:get(?CHECKPOINT_HISTORY, JobData)};
+                        {ok, #{?STATE := ?ST_FAILED} = JobData} ->
+                            {error, maps:get(?STATE_INFO, JobData)};
+                        {error, Error} ->
+                            {error, Error}
+                    end
             end
     end.
 
@@ -221,6 +238,11 @@ remove_jobs() ->
     [] = couch_replicator_jobs:remove_jobs(undefined, Acc),
     ok.
 
+
+get_job_ids() ->
+    couch_replicator_jobs:get_job_ids(undefined).
+
+
 % Private functions
 
 -spec start_transient_job(binary(), #{}) -> ok.
@@ -247,16 +269,24 @@ start_transient_job(JobId, #{} = Rep) ->
     end).
 
 
--spec cancel_replication(rep_id()) ->
+-spec cancel_replication(job_id()) ->
     {ok, {cancelled, binary()}} | {error, not_found}.
 cancel_replication(JobId) when is_binary(JobId) ->
-    couch_log:notice("Canceling replication '~s'", [JobId]),
-    case couch_replicator_jobs:remove_job(undefined, JobId) of
-        {error, not_found} ->
-            {error, not_found};
-        ok ->
-            {ok, {cancelled, JobId}}
-    end.
+    couch_jobs_fdb:tx(couch_jobs_fdb:get_jtx(), fun(JTx) ->
+        Id = case couch_replicator_jobs:get_job_data(JTx, JobId) of
+            {ok, #{?REP_ID := RepId}} when is_binary(RepId) ->
+                RepId;
+            _ ->
+                JobId
+        end,
+        couch_log:notice("Canceling replication '~s'", [Id]),
+        case couch_replicator_jobs:remove_job(JTx, JobId) of
+            {error, not_found} ->
+                {error, not_found};
+            ok ->
+                {ok, {cancelled, Id}}
+        end
+    end).
 
 
 process_change(_Db, #doc{id = <<?DESIGN_DOC_PREFIX, _/binary>>}) ->
@@ -346,6 +376,7 @@ doc_ejson(#{} = JobData) ->
         ?REP := Rep,
         ?REP_ID := RepId,
         ?DB_NAME := DbName,
+        ?DB_UUID := DbUUID,
         ?DOC_ID := DocId,
         ?STATE := State,
         ?STATE_INFO := Info0,
@@ -371,8 +402,11 @@ doc_ejson(#{} = JobData) ->
         _Other -> Info0
     end,
 
+    JobId = couch_replicator_ids:job_id(Rep, DbUUID, DocId),
+
     #{
         <<"id">> => RepId,
+        <<"job_id">> => JobId,
         <<"database">> => DbName,
         <<"doc_id">> => DocId,
         <<"source">> => ejson_url(Source),
@@ -394,10 +428,12 @@ job_ejson(#{} = JobData) ->
         ?REP := Rep,
         ?REP_ID := RepId,
         ?DB_NAME := DbName,
+        ?DB_UUID := DbUUID,
         ?DOC_ID := DocId,
         ?STATE := State,
-        ?STATE_INFO := Info,
-        ?JOB_HISTORY := History
+        ?STATE_INFO := Info0,
+        ?JOB_HISTORY := History,
+        ?REP_STATS := Stats
     } = JobData,
 
     #{
@@ -413,8 +449,17 @@ job_ejson(#{} = JobData) ->
         Evt#{?HIST_TIMESTAMP := couch_replicator_utils:iso8601(Ts)}
     end, History),
 
+    Info = case State of
+        ?ST_RUNNING -> Stats;
+        ?ST_PENDING -> Stats;
+        _Other -> Info0
+    end,
+
+    JobId = couch_replicator_ids:job_id(Rep, DbUUID, DocId),
+
     #{
         <<"id">> => RepId,
+        <<"job_id">> => JobId,
         <<"database">> => DbName,
         <<"doc_id">> => DocId,
         <<"source">> => ejson_url(Source),
