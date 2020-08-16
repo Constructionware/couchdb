@@ -20,7 +20,7 @@
    rfc1123_local/1,
    remove_basic_auth_from_headers/1,
    normalize_rep/1,
-   compare_rep_objects/2,
+   compare_reps/2,
    default_headers_map/0,
    parse_replication_states/1,
    parse_int_param/5,
@@ -102,8 +102,8 @@ decode_basic_creds(Base64) ->
     end.
 
 
--spec compare_rep_objects(#{} | null, #{} | null) -> boolean().
-compare_rep_objects(Rep1, Rep2) ->
+-spec compare_reps(#{} | null, #{} | null) -> boolean().
+compare_reps(Rep1, Rep2) ->
     NormRep1 = normalize_rep(Rep1),
     NormRep2 = normalize_rep(Rep2),
     NormRep1 =:= NormRep2.
