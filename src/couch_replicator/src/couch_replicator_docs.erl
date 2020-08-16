@@ -234,6 +234,9 @@ error_reason({shutdown, Error}) ->
     error_reason(Error);
 error_reason({bad_rep_doc, Reason}) ->
     couch_util:to_binary(Reason);
+error_reason(#{<<"error">> := Error, <<"reason">> := Reason})
+        when is_binary(Error), is_binary(Reason) ->
+    couch_util:to_binary(io_list:format("~s: ~s", [Error, Reason]));
 error_reason({error, {Error, Reason}})
         when is_atom(Error), is_binary(Reason) ->
     couch_util:to_binary(io_lib:format("~s: ~s", [Error, Reason]));
