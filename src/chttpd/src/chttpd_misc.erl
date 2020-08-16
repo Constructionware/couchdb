@@ -313,6 +313,11 @@ handle_replicate_req(#httpd{method='POST', user_ctx=Ctx, req_body=PostBody} = Re
             send_json(Req, 200, {[{ok, stopped}]});
         {error, not_found=Error} ->
             chttpd:send_error(Req, Error);
+        {error, #{<<"error">> := Err, <<"reason">> := Reason}} when
+                is_binary(Err), is_binary(Reason) ->
+            % Safe to use binary_to_atom since this is only built
+            % from couch_replicator_jobs:error_info/1
+            chttpd:send_error(Req, {binary_to_atom(Err, utf8), Reason});
         {error, {_, _}=Error} ->
             chttpd:send_error(Req, Error);
         {_, _}=Error ->
