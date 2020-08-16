@@ -110,12 +110,7 @@ convert(Id0) when is_binary(Id0) ->
     % Spaces can result from mochiweb incorrectly unquoting + characters from
     % the URL path. So undo the incorrect parsing here to avoid forcing
     % users to url encode + characters.
-    Id = binary:replace(Id0, <<" ">>, <<"+">>, [global]),
-    {BaseId, ExtId} = case binary:split(Id, <<"+">>) of
-        [BId, Ext] -> {BId, Ext};
-        [BId] -> {BId, <<>>}
-    end,
-    iolist_to_binary([BaseId, ExtId]).
+    binary:replace(Id0, <<" ">>, <<"+">>, [global]).
 
 
 % Private functions
