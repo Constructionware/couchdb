@@ -155,9 +155,9 @@ fetch_internal(DDocName, FilterName, Source) ->
     end.
 
 
--spec query_params([_]) -> {[_]}.
-query_params(Options)->
-    couch_util:get_value(query_params, Options, {[]}).
+-spec query_params(#{}) -> #{}.
+query_params(#{} = Options)->
+    maps:get(<<"query_params">>, Options, #{}).
 
 
 parse_user_filter(Filter) ->
