@@ -474,7 +474,8 @@ maybe_add_changes_filter_q_args(BaseQS, Options) ->
         ViewFields0 = [atom_to_list(F) || F <- record_info(fields,  mrargs)],
         ViewFields = ["key" | ViewFields0],
 
-        {Params} = get_value(query_params, Options, {[]}),
+        ParamsMap = #{} = get_value(query_params, Options, #{}),
+        Params = maps:to_list(ParamsMap),
         [{"filter", ?b2l(FilterName)} | lists:foldl(
             fun({K, V}, QSAcc) ->
                 Ks = couch_util:to_list(K),
@@ -960,7 +961,7 @@ ssl_opts_fold(K, V, Acc) when is_list(V) ->
 
 % See ?VALID_SOCK_OPTS in couch_replicator_docs for accepted socket options
 %
-sock_opts_fold(K, V, Acc) when is_list(V) ->
+sock_opts_fold(K, V, Acc) when is_binary(V) ->
      [{binary_to_atom(K, utf8), binary_to_atom(V, utf8)} | Acc];
 
 sock_opts_fold(K, V, Acc) when is_boolean(V); is_integer(V) ->
