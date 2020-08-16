@@ -251,8 +251,10 @@ start_transient_job(JobId, #{} = Rep) ->
         ?ST_PENDING, null, null),
     couch_jobs_fdb:tx(couch_jobs_fdb:get_jtx(), fun(JTx) ->
         case couch_replicator_jobs:get_job_data(JTx, JobId) of
-            {ok, #{?REP := OldRep}} ->
-                case couch_replicator_utils:compare_rep_objects(Rep, OldRep) of
+            {ok, #{?REP := OldRep, ?STATE := State}} ->
+                SameRep = couch_replicator_utils:compare_reps(Rep, OldRep),
+                Active = State =:= ?ST_PENDING orelse State =:= ?ST_RUNNING,
+                case SameRep andalso Active of
                     true ->
                         % If a job with the same paremeters is running we don't
                         % stop and just ignore the request. This is mainly for
@@ -330,8 +332,10 @@ process_change(#{} = Db, #doc{deleted = false} = Doc) ->
             {ok, #{?REP := null}} when Rep =:= null ->
                 % New error so the job is updated
                 couch_replicator_jobs:add_job(JTx, JobId, JobData);
-            {ok, #{?REP := OldRep}} when is_map(Rep) ->
-                case couch_replicator_utils:compare_rep_objects(OldRep, Rep) of
+            {ok, #{?REP := OldRep, ?STATE := State}} when is_map(Rep) ->
+                SameRep = couch_replicator_utils:compare_reps(Rep, OldRep),
+                Active = State =:= ?ST_PENDING orelse State =:= ?ST_RUNNING,
+                case SameRep andalso Active of
                     true ->
                         % Document was changed but none of the parameters
                         % relevent for the replication job have changed, so
@@ -485,6 +489,8 @@ check_authorization(JobId, #user_ctx{} = Ctx) when is_binary(JobId) ->
     case couch_replicator_jobs:get_job_data(undefined, JobId) of
         {error, not_found} ->
             not_found;
+        {ok, #{?DB_NAME := DbName}} when is_binary(DbName) ->
+            throw({unauthorized, <<"Persistent replication collision">>});
         {ok, #{?REP := #{?REP_USER := Name}}} ->
             ok;
         {ok, #{}} ->
