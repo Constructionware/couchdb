@@ -66,8 +66,12 @@ parse_transient_rep({[_ | _]} = Doc, UserName) ->
         parse_rep(Doc, UserName)
     catch
         throw:{error, Reason} ->
+            Stack = erlang:get_stacktrace(),
+            couch_log:error("~p parse_transient_rep fail ~p ~p", [?MODULE, Reason, Stack]),
             throw({bad_request, Reason});
         Tag:Err ->
+            Stack = erlang:get_stacktrace(),
+            couch_log:error("~p parse_transient_rep fail ~p:~p ~p", [?MODULE, Tag, Err, Stack]),
             throw({bad_request, couch_util:to_binary({Tag, Err})})
     end,
     #{?OPTIONS := Options} = Rep,
@@ -172,7 +176,9 @@ parse_rep_db(#{} = Endpoint, #{} = ProxyParams, #{} = Options) ->
     Headers = maps:merge(DefaultHeaders, Headers0),
 
     SockOpts = maps:get(<<"socket_options">>, Options, #{}),
-    SockAndProxy = maps:merge(SockOpts, ProxyParams),
+    SockAndProxy = maps:merge(#{
+        <<"socket_options">> => SockOpts
+    }, ProxyParams),
     SslParams = ssl_params(Url),
 
     #{
@@ -270,7 +276,7 @@ convert_options(<<"doc_ids">>, null, Acc) ->
 convert_options(<<"doc_ids">>, V, Acc) when is_list(V) ->
     % Compatibility behaviour as: accept a list of percent encoded doc IDs
     Ids = lists:map(fun(Id) ->
-        case is_binary(Id) andalso byte_size(Id) > 1 of
+        case is_binary(Id) andalso byte_size(Id) > 0 of
             true -> list_to_binary(couch_httpd:unquote(Id));
             false -> throw({error, <<"`doc_ids` array must contain strings">>})
         end
