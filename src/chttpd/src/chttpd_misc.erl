@@ -307,8 +307,8 @@ handle_replicate_req(#httpd{method='POST', user_ctx=Ctx, req_body=PostBody} = Re
             send_json(Req, 202, {[{ok, true}, {<<"_local_id">>, RepId}]});
         {ok, {cancelled, RepId}} ->
             send_json(Req, 200, {[{ok, true}, {<<"_local_id">>, RepId}]});
-        {ok, {JsonResults}} ->
-            send_json(Req, {[{ok, true} | JsonResults]});
+        {ok, #{} = JsonResults} ->
+            send_json(Req, maps:merge(#{<<"ok">> => true}, JsonResults));
         {ok, stopped} ->
             send_json(Req, 200, {[{ok, stopped}]});
         {error, not_found=Error} ->
