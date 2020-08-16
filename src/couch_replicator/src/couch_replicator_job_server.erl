@@ -33,11 +33,16 @@
     code_change/3
 ]).
 
+
+-include("couch_replicator.hrl").
+
+
 -define(MAX_ACCEPTORS, 2).
 -define(MAX_JOBS, 500).
 -define(MAX_CHURN, 100).
 -define(INTERVAL_SEC, 15).
 -define(MIN_RUN_TIME_SEC, 60).
+-define(TRANSIENT_JOB_MAX_AGE_SEC, 86400). % 1 day
 
 
 start_link(Timeout) when is_integer(Timeout) ->
@@ -111,10 +116,11 @@ handle_info(reschedule, #{} = St) ->
     St2 = St1#{config := get_config()},
     St3 = trim_jobs(St2),
     St4 = reschedule(St3),
-    St5 = update_stats(St4),
-    St6 = do_send_after(St5),
-    St7 = St6#{churn := 0},
-    {noreply, St7};
+    St5 = transient_job_cleanup(St4),
+    St6 = update_stats(St5),
+    St7 = do_send_after(St6),
+    St8 = St7#{churn := 0},
+    {noreply, St8};
 
 handle_info({'EXIT', Pid, Reason}, #{} = St) ->
     #{
@@ -184,6 +190,27 @@ reschedule(#{} = St) ->
         {ok, Pid} = couch_replicator_job:start_link(),
         StAcc#{acceptors := Acceptors#{Pid => true}}
     end, St, lists:seq(1, ToStart)).
+
+
+transient_job_cleanup(#{} = St) ->
+    #{
+        config := #{transient_job_max_age_sec := MaxAge}
+    } = St,
+    Now = erlang:system_time(second),
+    FoldFun = fun(_JTx, JobId, State, #{} = Data, ok) ->
+        IsTransient = maps:get(?DB_NAME, Data) =:= null,
+        IsOld = Now - maps:get(?LAST_UPDATED, Data) > MaxAge,
+        case State =:= finished andalso IsTransient andalso IsOld of
+            true ->
+                ok = couch_replicator_jobs:remove_job(undefind, JobId),
+                couch_log:info("~p : Removed old job ~p", [?MODULE, JobId]),
+                ok;
+            false ->
+                ok
+        end
+    end,
+    ok = couch_replicator_jobs:fold_jobs(undefined, FoldFun, ok),
+    St.
 
 
 update_stats(#{} = St) ->
@@ -307,7 +334,8 @@ get_config() ->
         interval_sec => ?INTERVAL_SEC,
         max_jobs => ?MAX_JOBS,
         max_churn => ?MAX_CHURN,
-        min_run_time_sec => ?MIN_RUN_TIME_SEC
+        min_run_time_sec => ?MIN_RUN_TIME_SEC,
+        transient_job_max_age_sec => ?TRANSIENT_JOB_MAX_AGE_SEC
     },
     maps:map(fun(K, Default) ->
         config:get_integer("replicator", atom_to_list(K), Default)
