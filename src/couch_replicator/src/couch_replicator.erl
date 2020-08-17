@@ -380,7 +380,6 @@ doc_ejson(#{} = JobData) ->
         ?REP := Rep,
         ?REP_ID := RepId,
         ?DB_NAME := DbName,
-        ?DB_UUID := DbUUID,
         ?DOC_ID := DocId,
         ?STATE := State,
         ?STATE_INFO := Info0,
@@ -406,11 +405,8 @@ doc_ejson(#{} = JobData) ->
         _Other -> Info0
     end,
 
-    JobId = couch_replicator_ids:job_id(Rep, DbUUID, DocId),
-
     #{
         <<"id">> => RepId,
-        <<"job_id">> => JobId,
         <<"database">> => DbName,
         <<"doc_id">> => DocId,
         <<"source">> => ejson_url(Source),
@@ -432,7 +428,6 @@ job_ejson(#{} = JobData) ->
         ?REP := Rep,
         ?REP_ID := RepId,
         ?DB_NAME := DbName,
-        ?DB_UUID := DbUUID,
         ?DOC_ID := DocId,
         ?STATE := State,
         ?STATE_INFO := Info0,
@@ -459,11 +454,8 @@ job_ejson(#{} = JobData) ->
         _Other -> Info0
     end,
 
-    JobId = couch_replicator_ids:job_id(Rep, DbUUID, DocId),
-
     #{
         <<"id">> => RepId,
-        <<"job_id">> => JobId,
         <<"database">> => DbName,
         <<"doc_id">> => DocId,
         <<"source">> => ejson_url(Source),
