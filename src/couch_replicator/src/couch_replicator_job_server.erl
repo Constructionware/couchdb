@@ -21,7 +21,9 @@
 ]).
 
 -export([
-    accepted/2
+    accepted/2,
+    scheduling_interval_sec/0,
+    reschedule/0
 ]).
 
 -export([
@@ -53,6 +55,14 @@ start_link(Timeout) when is_integer(Timeout) ->
 %
 accepted(Worker, Normal) when is_pid(Worker), is_boolean(Normal) ->
     gen_server:call(?MODULE, {accepted, Worker, Normal}, infinity).
+
+
+scheduling_interval_sec() ->
+    config:get_integer("replicator", "interval_sec", ?INTERVAL_SEC).
+
+
+reschedule() ->
+    gen_serfver:call(?MODULE, reschedule, infinity).
 
 
 init(Timeout) when is_integer(Timeout) ->
@@ -103,6 +113,9 @@ handle_call({accepted, Pid, Normal}, _From, #{} = St) ->
             {stop, {unknown_acceptor_pid, Pid}, St}
     end;
 
+handle_call(reschedule, _From, St) ->
+    {reply, ok, reschedule(St)};
+
 handle_call(Msg, _From, St) ->
     {stop, {bad_call, Msg}, {bad_call, Msg}, St}.
 
@@ -112,15 +125,7 @@ handle_cast(Msg, St) ->
 
 
 handle_info(reschedule, #{} = St) ->
-    St1 = cancel_timer(St),
-    St2 = St1#{config := get_config()},
-    St3 = trim_jobs(St2),
-    St4 = reschedule(St3),
-    St5 = transient_job_cleanup(St4),
-    St6 = update_stats(St5),
-    St7 = do_send_after(St6),
-    St8 = St7#{churn := 0},
-    {noreply, St8};
+    {noreply, reschedule(St)};
 
 handle_info({'EXIT', Pid, Reason}, #{} = St) ->
     #{
@@ -161,6 +166,17 @@ cancel_timer(#{timer := TRef} = St) when is_reference(TRef) ->
 
 
 reschedule(#{} = St) ->
+    St1 = cancel_timer(St),
+    St2 = St1#{config := get_config()},
+    St3 = trim_jobs(St2),
+    St4 = start_excess_acceptors(St3),
+    St5 = transient_job_cleanup(St4),
+    St6 = update_stats(St5),
+    St7 = do_send_after(St6),
+    St7#{churn := 0}.
+
+
+start_excess_acceptors(#{} = St) ->
     #{
         churn := Churn,
         acceptors := Acceptors,
