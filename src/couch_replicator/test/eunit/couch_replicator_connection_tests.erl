@@ -32,7 +32,8 @@ httpc_pool_test_() ->
         "replicator connection sharing tests",
         {
             setup,
-            fun() -> test_util:start_couch([couch_replicator]) end, fun test_util:stop_couch/1,
+            fun() -> test_util:start_couch([fabric, couch_replicator]) end,
+            fun test_util:stop_couch/1,
             {
                 foreach,
                 fun setup/0, fun teardown/1,

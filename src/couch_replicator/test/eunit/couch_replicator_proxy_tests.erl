@@ -14,7 +14,7 @@
 
 -include_lib("couch/include/couch_eunit.hrl").
 -include_lib("couch_replicator/src/couch_replicator.hrl").
--include_lib("couch_replicator/include/couch_replicator_api_wrap.hrl").
+%-include_lib("couch_replicator/include/couch_replicator_api_wrap.hrl").
 
 
 setup() ->
@@ -30,7 +30,8 @@ replicator_proxy_test_() ->
         "replicator proxy tests",
         {
             setup,
-            fun() -> test_util:start_couch([couch_replicator]) end, fun test_util:stop_couch/1,
+            fun() -> test_util:start_couch([couch_replicator]) end,
+            fun test_util:stop_couch/1,
             {
                 foreach,
                 fun setup/0, fun teardown/1,
@@ -53,8 +54,10 @@ parse_rep_doc_without_proxy(_) ->
             {<<"target">>, <<"http://otherunproxied.com">>}
         ]},
         Rep = couch_replicator_docs:parse_rep_doc(NoProxyDoc),
-        ?assertEqual((Rep#rep.source)#httpdb.proxy_url, undefined),
-        ?assertEqual((Rep#rep.target)#httpdb.proxy_url, undefined)
+        Src = maps:get(?SOURCE, Rep),
+        Tgt = maps:get(?TARGET, Rep),
+        ?assertEqual(maps:get(<<"proxy_url">>, Src), <<>>),
+        ?assertEqual(maps:get(<<"proxy_url">>, Tgt), <<>>)
     end).
 
 
@@ -67,8 +70,10 @@ parse_rep_doc_with_proxy(_) ->
             {<<"proxy">>, ProxyURL}
         ]},
         Rep = couch_replicator_docs:parse_rep_doc(ProxyDoc),
-        ?assertEqual((Rep#rep.source)#httpdb.proxy_url, binary_to_list(ProxyURL)),
-        ?assertEqual((Rep#rep.target)#httpdb.proxy_url, binary_to_list(ProxyURL))
+        Src = maps:get(?SOURCE, Rep),
+        Tgt = maps:get(?TARGET, Rep),
+        ?assertEqual(maps:get(<<"proxy_url">>, Src), ProxyURL),
+        ?assertEqual(maps:get(<<"proxy_url">>, Tgt), ProxyURL)
     end).
 
 
@@ -83,10 +88,10 @@ parse_rep_source_target_proxy(_) ->
             {<<"target_proxy">>, TgtProxyURL}
         ]},
         Rep = couch_replicator_docs:parse_rep_doc(ProxyDoc),
-        ?assertEqual((Rep#rep.source)#httpdb.proxy_url,
-            binary_to_list(SrcProxyURL)),
-        ?assertEqual((Rep#rep.target)#httpdb.proxy_url,
-            binary_to_list(TgtProxyURL))
+        Src = maps:get(?SOURCE, Rep),
+        Tgt = maps:get(?TARGET, Rep),
+        ?assertEqual(maps:get(<<"proxy_url">>, Src), SrcProxyURL),
+        ?assertEqual(maps:get(<<"proxy_url">>, Tgt), TgtProxyURL)
     end).
 
 

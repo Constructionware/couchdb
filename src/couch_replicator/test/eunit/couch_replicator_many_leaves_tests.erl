@@ -33,16 +33,14 @@
 -define(io2b(Io), iolist_to_binary(Io)).
 
 setup() ->
-    DbName = ?tempdb(),
-    {ok, Db} = couch_db:create(DbName, [?ADMIN_CTX]),
-    ok = couch_db:close(Db),
-    DbName.
+    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
+    fabric2_db:name(Db).
 
 
 setup(remote) ->
     {remote, setup()};
 setup({A, B}) ->
-    Ctx = test_util:start_couch([couch_replicator]),
+    Ctx = test_util:start_couch([fabric, couch_replicator]),
     Source = setup(A),
     Target = setup(B),
     {Ctx, {Source, Target}}.
@@ -50,8 +48,8 @@ setup({A, B}) ->
 teardown({remote, DbName}) ->
     teardown(DbName);
 teardown(DbName) ->
-    ok = couch_server:delete(DbName, [?ADMIN_CTX]),
-    ok.
+    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
+
 
 teardown(_, {Ctx, {Source, Target}}) ->
     teardown(Source),

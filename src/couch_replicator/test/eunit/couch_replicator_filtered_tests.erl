@@ -16,13 +16,14 @@
 -include_lib("couch/include/couch_db.hrl").
 -include_lib("couch_replicator/src/couch_replicator.hrl").
 
--define(DDOC, {[
-    {<<"_id">>, <<"_design/filter_ddoc">>},
-    {<<"filters">>, {[
-        {<<"testfilter">>, <<"
+
+-define(DDOC, #{
+    <<"_id">> => <<"_design/filter_ddoc">>,
+    <<"filters">> => #{
+        <<"testfilter">> => <<"
             function(doc, req){if (doc.class == 'mammal') return true;}
-        ">>},
-        {<<"queryfilter">>, <<"
+        ">>,
+        <<"queryfilter">> => <<"
             function(doc, req) {
                 if (doc.class && req.query.starts) {
                     return doc.class.indexOf(req.query.starts) === 0;
@@ -31,23 +32,24 @@
                     return false;
                 }
             }
-        ">>}
-    ]}},
-    {<<"views">>, {[
-        {<<"mammals">>, {[
-            {<<"map">>, <<"
+        ">>
+    },
+    <<"views">> => #{
+        <<"mammals">> => #{
+            <<"map">> => <<"
                 function(doc) {
                     if (doc.class == 'mammal') {
                         emit(doc._id, null);
                     }
                 }
-            ">>}
-        ]}}
-    ]}}
-]}).
+            ">>
+        }
+    }
+}).
+
 
 setup(_) ->
-    Ctx = test_util:start_couch([couch_replicator]),
+    Ctx = test_util:start_couch([fabric, couch_replicator]),
     Source = create_db(),
     create_docs(Source),
     Target = create_db(),
@@ -163,77 +165,37 @@ should_succeed_with_view({From, To}, {_Ctx, {Source, Target}}) ->
         ?_assert(lists:all(fun(Valid) -> Valid end, AllReplies))}
     ]}.
 
+
 compare_dbs(Source, Target, FilterFun) ->
-    {ok, SourceDb} = couch_db:open_int(Source, []),
-    {ok, TargetDb} = couch_db:open_int(Target, []),
-    {ok, TargetDbInfo} = couch_db:get_db_info(TargetDb),
-    Fun = fun(FullDocInfo, Acc) ->
-        {ok, DocId, SourceDoc} = read_doc(SourceDb, FullDocInfo),
-        TargetReply = read_doc(TargetDb, DocId),
-        case FilterFun(DocId, SourceDoc) of
-            true ->
-                ValidReply = {ok, DocId, SourceDoc} == TargetReply,
-                {ok, [ValidReply|Acc]};
-            false ->
-                ValidReply = {not_found, missing} == TargetReply,
-                {ok, [ValidReply|Acc]}
+    {ok, TargetDbInfo} = fabirc2_db:get_db_info(Target),
+    Fun = fun(SrcDoc, TgtDoc, Acc) ->
+        case FilterFun(SrcDoc#doc.id, SrcDoc#doc.body) of
+            true -> [SrcDoc == TgtDoc | Acc];
+            false -> [not_found == TgtDoc | Acc]
         end
     end,
-    {ok, AllReplies} = couch_db:fold_docs(SourceDb, Fun, [], []),
-    ok = couch_db:close(SourceDb),
-    ok = couch_db:close(TargetDb),
-    {ok, TargetDbInfo, AllReplies}.
+    Res = couch_replicator_test_helper:compare_fold(Source, Target, Fun, []),
+    {ok, TargetDbInfo, Res}.
 
-read_doc(Db, DocIdOrInfo) ->
-    case couch_db:open_doc(Db, DocIdOrInfo) of
-        {ok, Doc} ->
-            {Props} = couch_doc:to_json_obj(Doc, [attachments]),
-            DocId = couch_util:get_value(<<"_id">>, Props),
-            {ok, DocId, {Props}};
-        Error ->
-            Error
-    end.
 
 create_db() ->
-    DbName = ?tempdb(),
-    {ok, Db} = couch_db:create(DbName, [?ADMIN_CTX]),
-    ok = couch_db:close(Db),
-    DbName.
+    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
+    fabric2_db:name(Db).
+
 
 create_docs(DbName) ->
-    {ok, Db} = couch_db:open(DbName, [?ADMIN_CTX]),
-    DDoc = couch_doc:from_json_obj(?DDOC),
-    Doc1 = couch_doc:from_json_obj({[
-        {<<"_id">>, <<"doc1">>},
-        {<<"class">>, <<"mammal">>},
-        {<<"value">>, 1}
+    couch_replicator_test_helper:create_docs(DbName, [
+        ?DDOC,
+        #{<<"_id">> => <<"doc1">>, <<"class">> => <<"mammal">>, <<"value">> => 1},
+        #{<<"_id">> => <<"doc2">>, <<"class">> => <<"amphibians">>, <<"value">> => 2},
+        #{<<"_id">> => <<"doc3">>, <<"class">> => <<"reptiles">>, <<"value">> => 3},
+        #{<<"_id">> => <<"doc4">>, <<"class">> => <<"arthropods">>, <<"value">> => 2}
+    ]).
 
-    ]}),
-    Doc2 = couch_doc:from_json_obj({[
-        {<<"_id">>, <<"doc2">>},
-        {<<"class">>, <<"amphibians">>},
-        {<<"value">>, 2}
-
-    ]}),
-    Doc3 = couch_doc:from_json_obj({[
-        {<<"_id">>, <<"doc3">>},
-        {<<"class">>, <<"reptiles">>},
-        {<<"value">>, 3}
-
-    ]}),
-    Doc4 = couch_doc:from_json_obj({[
-        {<<"_id">>, <<"doc4">>},
-        {<<"class">>, <<"arthropods">>},
-        {<<"value">>, 2}
-
-    ]}),
-    {ok, _} = couch_db:update_docs(Db, [DDoc, Doc1, Doc2, Doc3, Doc4]),
-    couch_db:close(Db).
 
 delete_db(DbName) ->
-    ok = couch_server:delete(DbName, [?ADMIN_CTX]).
+    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
+
 
 db_url(remote, DbName) ->
-    Addr = config:get("httpd", "bind_address", "127.0.0.1"),
-    Port = mochiweb_socket_server:get(couch_httpd, port),
-    ?l2b(io_lib:format("http://~s:~b/~s", [Addr, Port, DbName])).
+     couch_replicator_test_helper:db_url(DbName).

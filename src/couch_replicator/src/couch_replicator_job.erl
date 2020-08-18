@@ -1498,18 +1498,18 @@ replication_start_error_test() ->
 scheduler_job_format_status_test() ->
     Source = <<"http://u:p@h1/d1">>,
     Target = <<"http://u:p@h2/d2">>,
-    Rep = #rep{
-        id = {"base", "+ext"},
-        source = couch_replicator_parse:parse_rep_db(Source, [], []),
-        target = couch_replicator_parse:parse_rep_db(Target, [], []),
-        options = [{create_target, true}],
-        doc_id = <<"mydoc">>,
-        db_name = <<"mydb">>
+    Rep = #{
+        ?SOURCE => couch_replicator_parse:parse_rep_db(Source, [], []),
+        ?TARGET => couch_replicator_parse:parse_rep_db(Target, [], []),
+        ?OPTIONS => #{<<"create_target">> => true}
     },
     State = #rep_state{
-        rep_details = Rep,
-        source = Rep#rep.source,
-        target = Rep#rep.target,
+        id = <<"base+ext">>,
+        job_data = #{?REP => Rep},
+        doc_id = <<"mydoc">>,
+        db_name = <<"mydb">>,
+        source = maps:get(?SOURCE, Rep),
+        target = maps:get(?TARGET, Rep),
         session_id = <<"a">>,
         start_seq = <<"1">>,
         source_seq = <<"2">>,
@@ -1520,7 +1520,7 @@ scheduler_job_format_status_test() ->
     Format = format_status(opts_ignored, [pdict, State]),
     ?assertEqual("http://u:*****@h1/d1/", proplists:get_value(source, Format)),
     ?assertEqual("http://u:*****@h2/d2/", proplists:get_value(target, Format)),
-    ?assertEqual({"base", "+ext"}, proplists:get_value(rep_id, Format)),
+    ?assertEqual(<<"base+ext">>, proplists:get_value(rep_id, Format)),
     ?assertEqual([{create_target, true}], proplists:get_value(options, Format)),
     ?assertEqual(<<"mydoc">>, proplists:get_value(doc_id, Format)),
     ?assertEqual(<<"mydb">>, proplists:get_value(db_name, Format)),

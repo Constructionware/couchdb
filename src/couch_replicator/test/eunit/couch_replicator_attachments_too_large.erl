@@ -18,7 +18,7 @@
 
 
 setup(_) ->
-    Ctx = test_util:start_couch([couch_replicator]),
+    Ctx = test_util:start_couch([fabric, couch_replicator]),
     Source = create_db(),
     create_doc_with_attachment(Source, <<"doc">>, 1000),
     Target = create_db(),
@@ -67,17 +67,13 @@ should_fail({From, To}, {_Ctx, {Source, Target}}) ->
 
 
 create_db() ->
-    DbName = ?tempdb(),
-    {ok, Db} = couch_db:create(DbName, [?ADMIN_CTX]),
-    ok = couch_db:close(Db),
-    DbName.
+    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
+    fabric2_db:name(Db).
 
 
 create_doc_with_attachment(DbName, DocId, AttSize) ->
-    {ok, Db} = couch_db:open(DbName, [?ADMIN_CTX]),
     Doc = #doc{id = DocId, atts = att(AttSize)},
-    {ok, _} = couch_db:update_doc(Db, Doc, []),
-    couch_db:close(Db),
+    couch_replicator_test_helper:create_docs(DbName, [Doc]),
     ok.
 
 
@@ -93,10 +89,8 @@ att(Size) when is_integer(Size), Size >= 1 ->
 
 
 delete_db(DbName) ->
-    ok = couch_server:delete(DbName, [?ADMIN_CTX]).
+    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
 
 
 db_url(remote, DbName) ->
-    Addr = config:get("httpd", "bind_address", "127.0.0.1"),
-    Port = mochiweb_socket_server:get(couch_httpd, port),
-    ?l2b(io_lib:format("http://~s:~b/~s", [Addr, Port, DbName])).
+    couch_replicator_test_helper:db_url(DbName).

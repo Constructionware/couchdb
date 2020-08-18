@@ -292,8 +292,8 @@ normalize_endpoint() ->
         headers = [{"k1","v1"}, {"k2","v2"}],
         ibrowse_options = [{k1, v1}, {k2, v2}]
     },
-    ?assertEqual(Expected, normalize_db(HttpDb)),
-    ?assertEqual(<<"local">>, normalize_db(<<"local">>)).
+    ?assertEqual(Expected, normalize_endpoint(HttpDb)),
+    ?assertEqual(<<"local">>, normalize_endpoint(<<"local">>)).
 
 
 -endif.

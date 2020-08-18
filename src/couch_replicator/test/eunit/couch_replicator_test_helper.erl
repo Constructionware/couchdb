@@ -1,12 +1,16 @@
 -module(couch_replicator_test_helper).
 
+
 -include_lib("couch/include/couch_eunit.hrl").
 -include_lib("couch/include/couch_db.hrl").
 -include_lib("couch_replicator/src/couch_replicator.hrl").
 
+
 -export([
+    create_docs/2,
     compare_dbs/2,
     compare_dbs/3,
+    compare_docs/2,
     db_url/1,
     replicate/1,
     get_pid/1,
@@ -14,33 +18,70 @@
 ]).
 
 
+create_docs(DbName, Docs) when is_binary(DbName), is_list(Docs) ->
+    {ok, Db} = fabric2_db:open(DbName, [?ADMIN_CTX]),
+    Docs1 = lists:map(fun(Doc) ->
+        case Doc of
+            #{} ->
+                Doc1 = couch_util:json_decode(couch_util:json_encode(Doc)),
+                couch_doc:from_json_obj(Doc1);
+            #doc{} ->
+                Doc
+        end
+    end, Docs),
+    {ok, ResList} = fabric2_db:update_docs(Db, Docs1),
+    lists:foreach(fun(Res) ->
+        ?assertMatch({ok, {_, Rev}} when is_binary(Rev), Res)
+    end, ResList).
+
+
 compare_dbs(Source, Target) ->
-    compare_dbs(Source, Target, []).
+    Fun = fun(SrcDoc, TgtDoc, ok) -> compare_docs(SrcDoc, TgtDoc) end,
+    compare_fold(Source, Target, Fun, ok).
 
 
-compare_dbs(Source, Target, ExceptIds) ->
-    {ok, SourceDb} = couch_db:open_int(Source, []),
-    {ok, TargetDb} = couch_db:open_int(Target, []),
-
-    Fun = fun(FullDocInfo, Acc) ->
-        {ok, DocSource} = couch_db:open_doc(SourceDb, FullDocInfo),
-        Id = DocSource#doc.id,
-        case lists:member(Id, ExceptIds) of
-            true ->
-                ?assertEqual(not_found, couch_db:get_doc_info(TargetDb, Id));
-            false ->
-                {ok, TDoc} = couch_db:open_doc(TargetDb, Id),
-                compare_docs(DocSource, TDoc)
+compare_dbs(Source, Target, ExceptIds) when is_binary(Source),
+        is_binary(Target), is_list(ExceptIds) ->
+    Fun = fun(SrcDoc, TgtDoc, ok) ->
+        case lists:memeber(SrcDoc#doc.id, ExceptIds) of
+            true -> ?assertEqual(not_found, TgtDoc);
+            false -> compare_docs(SrcDoc, TgtDoc)
         end,
-        {ok, Acc}
+        ok
     end,
-
-    {ok, _} = couch_db:fold_docs(SourceDb, Fun, [], []),
-    ok = couch_db:close(SourceDb),
-    ok = couch_db:close(TargetDb).
+    compare_fold(Source, Target, Fun, ok).
 
 
-compare_docs(Doc1, Doc2) ->
+compare_fold(Source, Target, Fun, Acc0) when
+        is_binary(Source), is_binary(Target), is_function(Fun, 3) ->
+    {ok, SourceDb} = fabric2_db:open(Source, [?ADMIN_CTX]),
+    {ok, TargetDb} = fabric2_db:open(Target, [?ADMIN_CTX]),
+    fabric2_fdb:transactional(SourceDb, fun(TxSourceDb) ->
+        FoldFun = fun
+            ({meta, _Meta}, Acc) -> {ok, Acc};
+            (complete, Acc) -> {ok, Acc};
+            ({row, Row}, Acc) ->
+                {_, Id} = lists:keyfind(id, 1, Row),
+                SrcDoc = open_doc(TxSourceDb, Id),
+                TgtDoc = open_doc(TargetDb, Id),
+                {ok, Fun(SrcDoc, TgtDoc, Acc)}
+        end,
+        Opts = [{restart_tx, true}],
+        {ok, AccF} = fabric2_db:fold_docs(TxSourceDb, FoldFun, Acc0, Opts),
+        AccF
+    end).
+
+
+open_doc(Db, DocId) ->
+    case fabric2_db:open_doc(Db, DocId, []) of
+        {ok, #doc{deleted = false} = Doc} -> Doc;
+        {not_found, missing} -> not_found
+    end.
+
+
+compare_docs(#doc{} = Doc1, Doc2) when
+        is_record(Doc2, doc) orelse Doc2 =:= not_found ->
+    ?assert(Doc2 =/= not_found),
     ?assertEqual(Doc1#doc.body, Doc2#doc.body),
     #doc{atts = Atts1} = Doc1,
     #doc{atts = Atts2} = Doc2,
@@ -105,31 +146,57 @@ att_decoded_md5(Att) ->
     couch_hash:md5_hash_final(Md50).
 
 db_url(DbName) ->
-    iolist_to_binary([
-        "http://", config:get("httpd", "bind_address", "127.0.0.1"),
-        ":", integer_to_list(mochiweb_socket_server:get(couch_httpd, port)),
-        "/", DbName
-    ]).
+    Addr = config:get("httpd", "bind_address", "127.0.0.1"),
+    Port = mochiweb_socket_server:get(couch_httpd, port),
+    ?l2b(io_lib:format("http://~s:~b/~s", [Addr, Port, DbName])).
+
 
 get_pid(RepId) ->
-    Pid = global:whereis_name({couch_replicator_scheduler_job,RepId}),
+    JobId = case couch_replicator_jobs:get_job_id(undefined, RepId) of
+        {ok, JobId0} -> JobId0;
+        {error, not_found} -> RepId
+    end,
+    {ok, #{<<"state">> := <<"running">>, <<"rep_pid">> := Pid0}} =
+        couch_replicator_jobs:get_job_data(undefined, JobId),
+    Pid = list_to_pid(binary_to_list(Pid0)),
     ?assert(is_pid(Pid)),
+    ?assert(is_process_alive(Pid)),
     Pid.
 
-replicate(Source, Target) ->
-    replicate({[
-        {<<"source">>, Source},
-        {<<"target">>, Target}
-    ]}).
 
-replicate({[_ | _]} = RepObject) ->
-    {ok, Rep} = couch_replicator_utils:parse_rep_doc(RepObject, ?ADMIN_USER),
-    ok = couch_replicator_scheduler:add_job(Rep),
-    couch_replicator_scheduler:reschedule(),
-    Pid = get_pid(Rep#rep.id),
-    MonRef = erlang:monitor(process, Pid),
-    receive
-        {'DOWN', MonRef, process, Pid, _} ->
-            ok
-    end,
-    ok = couch_replicator_scheduler:remove_job(Rep#rep.id).
+replicate(Source, Target) ->
+    replicate(#{
+        <<"source">> => Source,
+        <<"target">> => Target
+    }).
+
+
+replicate(Rep) when is_tuple(Rep) orelse is_map(Rep) ->
+    {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, ?ADMIN_USER),
+    ok = cancel(Id),
+    {ok, Res = #{}} = couch_replicator:replicate(Rep, ?ADMIN_CTX),
+    io:format(standard_error, "~nXXXX REP RESULT :~p~n", [Res]),
+    ok = cancel(Id).
+
+
+replicate_continuous(Source, Target) ->
+    replicate(#{
+        <<"source">> => Source,
+        <<"target">> => Target,
+        <<"continuous">> => true
+    }).
+
+
+replicate_continuous(Rep) when is_tuple(Rep) orelse is_map(Rep) ->
+    {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, ?ADMIN_USER),
+    ok = cancel(Id),
+    {ok, {continuous, Id}} = couch_replicator:replicate(Rep, ?ADMIN_CTX),
+    {ok, get_pid(Id), Id}.
+
+
+cancel(Id) when is_binary(Id) ->
+    CancelRep = #{<<"cancel">> => true, <<"id">> => Id},
+    case couch_replicator:replicate(CancelRep, ?ADMIN_CTX) of
+        {ok, {cancelled, <<_/binary>>}} -> ok;
+        {error, not_found} -> ok
+    end.

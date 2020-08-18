@@ -223,7 +223,7 @@ maybe_add_trailing_slash(Url) when is_binary(Url) ->
 
 -spec make_options(#{}) -> #{}.
 make_options(#{} = RepDoc) ->
-    Options0 = maps:fold(fun convert_options/3, #{}, RepDoc),
+    Options0 = convert_options(RepDoc),
     Options = check_options(Options0),
     ConfigOptions = lists:foldl(fun({K, Default, ConversionFun}, Acc) ->
         V = ConversionFun(config:get("replicator", K, Default)),
@@ -232,48 +232,52 @@ make_options(#{} = RepDoc) ->
     maps:merge(ConfigOptions, Options).
 
 
--spec convert_options(binary(), any(), #{}) -> #{}.
+-spec convert_options(#{}) -> #{} | no_return().
+convert_options(#{} = Doc) ->
+    maps:fold(fun convert_fold/3, #{}, Doc).
 
-convert_options(<<"cancel">>, V, Acc) when is_boolean(V) ->
+
+-spec convert_fold(binary(), any(), #{}) -> #{}.
+convert_fold(<<"cancel">>, V, Acc) when is_boolean(V) ->
     Acc#{<<"cancel">> => V};
-convert_options(<<"cancel">>, _, _) ->
+convert_fold(<<"cancel">>, _, _) ->
     throw({error, <<"`cancel` must be a boolean">>});
 
-convert_options(IdOpt, V, Acc) when IdOpt =:= <<"_local_id">>;
+convert_fold(IdOpt, V, Acc) when IdOpt =:= <<"_local_id">>;
         IdOpt =:= <<"replication_id">>; IdOpt =:= <<"id">> ->
     Acc#{<<"id">> => couch_replicator_ids:convert(V)};
 
 
-convert_options(<<"create_target">>, V, Acc) when is_boolean(V) ->
+convert_fold(<<"create_target">>, V, Acc) when is_boolean(V) ->
     Acc#{<<"create_target">> => V};
-convert_options(<<"create_target">>, _, _) ->
+convert_fold(<<"create_target">>, _, _) ->
     throw({error, <<"`create_target` must be a boolean">>});
 
 
-convert_options(<<"create_target_params">>, #{} = V, Acc) ->
+convert_fold(<<"create_target_params">>, #{} = V, Acc) ->
     Acc#{<<"create_target_params">> => V};
-convert_options(<<"create_target_params">>, _, _) ->
+convert_fold(<<"create_target_params">>, _, _) ->
     throw({error, <<"`create_target_params` must be an object">>});
 
 
-convert_options(<<"continuous">>, V, Acc) when is_boolean(V) ->
+convert_fold(<<"continuous">>, V, Acc) when is_boolean(V) ->
     Acc#{<<"continuous">> => V};
-convert_options(<<"continuous">>, _, _) ->
+convert_fold(<<"continuous">>, _, _) ->
     throw({error, <<"`continuous` must be a boolean">>});
 
-convert_options(<<"filter">>, V, Acc) when is_binary(V), byte_size(V) > 1 ->
+convert_fold(<<"filter">>, V, Acc) when is_binary(V), byte_size(V) > 1 ->
     Acc#{<<"filter">> => V};
-convert_options(<<"filter">>, _, _) ->
+convert_fold(<<"filter">>, _, _) ->
     throw({error, <<"`filter` must be a string">>});
 
-convert_options(<<"query_params">>, V, Acc) when is_map(V) orelse V =:= null ->
+convert_fold(<<"query_params">>, V, Acc) when is_map(V) orelse V =:= null ->
     Acc#{<<"query_params">> => V};
-convert_options(<<"query_params">>, _, _Acc) ->
+convert_fold(<<"query_params">>, _, _Acc) ->
     throw({error, <<"`query_params` is not `null` or object">>});
 
-convert_options(<<"doc_ids">>, null, Acc) ->
+convert_fold(<<"doc_ids">>, null, Acc) ->
     Acc;
-convert_options(<<"doc_ids">>, V, Acc) when is_list(V) ->
+convert_fold(<<"doc_ids">>, V, Acc) when is_list(V) ->
     % Compatibility behaviour as: accept a list of percent encoded doc IDs
     Ids = lists:map(fun(Id) ->
         case is_binary(Id) andalso byte_size(Id) > 0 of
@@ -282,44 +286,44 @@ convert_options(<<"doc_ids">>, V, Acc) when is_list(V) ->
         end
     end, V),
     Acc#{<<"doc_ids">> => lists:usort(Ids)};
-convert_options(<<"doc_ids">>, _, _) ->
+convert_fold(<<"doc_ids">>, _, _) ->
     throw({error, <<"`doc_ids` must be an array">>});
 
-convert_options(<<"selector">>, #{} = V, Acc) ->
+convert_fold(<<"selector">>, #{} = V, Acc) ->
     Acc#{<<"selector">> => V};
-convert_options(<<"selector">>, _, _Acc) ->
+convert_fold(<<"selector">>, _, _Acc) ->
     throw({error, <<"`selector` must be a JSON object">>});
 
-convert_options(<<"worker_processes">>, V, Acc) ->
+convert_fold(<<"worker_processes">>, V, Acc) ->
     Acc#{<<"worker_processes">> => bin2int(V, <<"worker_processes">>)};
 
-convert_options(<<"worker_batch_size">>, V, Acc) ->
+convert_fold(<<"worker_batch_size">>, V, Acc) ->
     Acc#{<<"worker_batch_size">> => bin2int(V, <<"worker_batch_size">>)};
 
-convert_options(<<"http_connections">>, V, Acc) ->
+convert_fold(<<"http_connections">>, V, Acc) ->
     Acc#{<<"http_connections">> => bin2int(V, <<"http_connections">>)};
 
-convert_options(<<"connection_timeout">>, V, Acc) ->
+convert_fold(<<"connection_timeout">>, V, Acc) ->
     Acc#{<<"connection_timeout">> => bin2int(V, <<"connection_timeout">>)};
 
-convert_options(<<"retries_per_request">>, V, Acc) ->
+convert_fold(<<"retries_per_request">>, V, Acc) ->
     Acc#{<<"retries">> => bin2int(V, <<"retries_per_request">>)};
 
-convert_options(<<"socket_options">>, V, Acc) ->
+convert_fold(<<"socket_options">>, V, Acc) ->
     Acc#{<<"socket_options">> => parse_sock_opts(V)};
 
-convert_options(<<"since_seq">>, V, Acc) ->
+convert_fold(<<"since_seq">>, V, Acc) ->
     Acc#{<<"since_seq">> => V};
 
-convert_options(<<"use_checkpoints">>, V, Acc) when is_boolean(V) ->
+convert_fold(<<"use_checkpoints">>, V, Acc) when is_boolean(V) ->
     Acc#{<<"use_checkpoints">> => V};
-convert_options(<<"use_checkpoints">>, _, _) ->
+convert_fold(<<"use_checkpoints">>, _, _) ->
     throw({error, <<"`use_checkpoints` must be a boolean">>});
 
-convert_options(<<"checkpoint_interval">>, V, Acc) ->
+convert_fold(<<"checkpoint_interval">>, V, Acc) ->
     Acc#{<<"checkpoint_interval">> => bin2int(V, <<"checkpoint_interval">>)};
 
-convert_options(_K, _V, Acc) -> % skip unknown option
+convert_fold(_K, _V, Acc) -> % skip unknown option
     Acc.
 
 
@@ -458,121 +462,58 @@ ssl_verify_options(false) ->
 
 
 check_options_pass_values_test() ->
-    ?assertEqual(check_options([]), []),
-    ?assertEqual(check_options([baz, {other, fiz}]), [baz, {other, fiz}]),
-    ?assertEqual(check_options([{doc_ids, x}]), [{doc_ids, x}]),
-    ?assertEqual(check_options([{filter, x}]), [{filter, x}]),
-    ?assertEqual(check_options([{selector, x}]), [{selector, x}]).
+    ?assertEqual(check_options(#{}), #{}),
+    ?assertEqual(check_options(#{<<"baz">> => <<"foo">>}),
+        #{<<"baz">> => <<"foo">>}),
+    ?assertEqual(check_options(#{<<"doc_ids">> => [<<"x">>]}),
+        #{<<"doc_ids">> => [<<"x">>]}),
+    ?assertEqual(check_options(#{<<"filter">> => <<"f">>}),
+        #{<<"fitler">> => <<"f">>}),
+    ?assertEqual(check_options(#{<<"selector">> => <<"s">>}),
+        #{<<"selector">> => <<"s">>}).
 
 
 check_options_fail_values_test() ->
     ?assertThrow({error, _},
-        check_options([{doc_ids, x}, {filter, y}])),
+        check_options(#{<<"doc_ids">> => [], <<"filter">> => <<"f">>})),
     ?assertThrow({error, _},
-        check_options([{doc_ids, x}, {selector, y}])),
+        check_options(#{<<"doc_ids">> => [], <<"selector">> => <<"s">>})),
     ?assertThrow({error, _},
-        check_options([{filter, x}, {selector, y}])),
+        check_options(#{<<"filter">> => <<"f">>, <<"selector">> => <<"s">>})),
     ?assertThrow({error, _},
-        check_options([{doc_ids, x}, {selector, y}, {filter, z}])).
+        check_options(#{
+            <<"doc_ids">> => [],
+            <<"filter">> => <<"f">>,
+            <<"selector">> => <<"s">>}
+    )).
 
 
 check_convert_options_pass_test() ->
-    ?assertEqual([], convert_options([])),
-    ?assertEqual([], convert_options([{<<"random">>, 42}])),
-    ?assertEqual([{cancel, true}],
-        convert_options([{<<"cancel">>, true}])),
-    ?assertEqual([{create_target, true}],
-        convert_options([{<<"create_target">>, true}])),
-    ?assertEqual([{continuous, true}],
-        convert_options([{<<"continuous">>, true}])),
-    ?assertEqual([{doc_ids, [<<"id">>]}],
-        convert_options([{<<"doc_ids">>, [<<"id">>]}])),
-    ?assertEqual([{selector, {key, value}}],
-        convert_options([{<<"selector">>, {key, value}}])).
+    ?assertEqual(#{}, convert_options(#{})),
+    ?assertEqual(#{}, convert_options(#{<<"random">> => 42})),
+    ?assertEqual(#{<<"cancel">> => true},
+        convert_options(#{<<"cancel">> => true})),
+    ?assertEqual(#{<<"create_target">> => true},
+        convert_options(#{<<"create_target">> => true})),
+    ?assertEqual(#{<<"continuous">> => true},
+        convert_options(#{<<"continuous">> => true})),
+    ?assertEqual(#{<<"doc_ids">> => [<<"id">>]},
+        convert_options(#{<<"doc_ids">> => [<<"id">>]})),
+    ?assertEqual(#{<<"selector">> => #{<<"key">> => <<"value">>}},
+        convert_options(#{<<"selector">> => #{<<"key">> => <<"value">>}})).
 
 
 check_convert_options_fail_test() ->
     ?assertThrow({error, _},
-        convert_options([{<<"cancel">>, <<"true">>}])),
+        convert_options(#{<<"cancel">> => <<"true">>})),
     ?assertThrow({error, _},
-        convert_options([{<<"create_target">>, <<"true">>}])),
+        convert_options(#{<<"create_target">> => <<"true">>})),
     ?assertThrow({error, _},
-        convert_options([{<<"continuous">>, <<"true">>}])),
+        convert_options(#{<<"continuous">> => <<"true">>})),
     ?assertThrow({error, _},
-        convert_options([{<<"doc_ids">>, not_a_list}])),
+        convert_options(#{<<"doc_ids">> => <<"not_a_list">>})),
     ?assertThrow({error, _},
-        convert_options([{<<"selector">>, [{key, value}]}])).
-
-check_strip_credentials_test() ->
-    [?assertEqual(Expected, strip_credentials(Body)) || {Expected, Body} <- [
-        {
-            undefined,
-            undefined
-        },
-        {
-            <<"https://remote_server/database">>,
-            <<"https://foo:bar@remote_server/database">>
-        },
-        {
-            {[{<<"_id">>, <<"foo">>}]},
-            {[{<<"_id">>, <<"foo">>}, {<<"headers">>, <<"bar">>}]}
-        },
-        {
-            {[{<<"_id">>, <<"foo">>}, {<<"other">>, <<"bar">>}]},
-            {[{<<"_id">>, <<"foo">>}, {<<"other">>, <<"bar">>}]}
-        },
-        {
-            {[{<<"_id">>, <<"foo">>}]},
-            {[{<<"_id">>, <<"foo">>}, {<<"headers">>, <<"baz">>}]}
-        },
-        {
-            {[{<<"_id">>, <<"foo">>}]},
-            {[{<<"_id">>, <<"foo">>}, {<<"auth">>, <<"pluginsecret">>}]}
-        }
-    ]].
-
-
-setup() ->
-    DbName = ?tempdb(),
-    {ok, Db} = fabric2_db:create(DbName, [?ADMIN_CTX]),
-    create_vdu(Db),
-    DbName.
-
-
-teardown(DbName) when is_binary(DbName) ->
-    fabric2_db:delete(DbName, [?ADMIN_CTX]),
-    ok.
-
-
-create_vdu(Db) ->
-    VduFun = <<"function(newdoc, olddoc, userctx) {throw({'forbidden':'fail'})}">>,
-    Doc = #doc{
-        id = <<"_design/vdu">>,
-        body = {[{<<"validate_doc_update">>, VduFun}]}
-    },
-    {ok, _} = fabric2_db:update_doc(Db, [Doc]),
-    ok.
-
-
-update_replicator_doc_with_bad_vdu_test_() ->
-    {
-        setup,
-        fun test_util:start_couch/0,
-        fun test_util:stop_couch/1,
-        {
-            foreach, fun setup/0, fun teardown/1,
-            [
-                fun t_vdu_does_not_crash_on_save/1
-            ]
-        }
-    }.
-
-
-t_vdu_does_not_crash_on_save(DbName) ->
-    ?_test(begin
-        Doc = #doc{id = <<"some_id">>, body = {[{<<"foo">>, 42}]}},
-        ?assertEqual({ok, forbidden}, save_rep_doc(DbName, Doc))
-    end).
+        convert_options(#{<<"selector">> => <<"bad">>})).
 
 
 local_replication_endpoint_error_test_() ->

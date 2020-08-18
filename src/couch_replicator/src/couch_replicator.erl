@@ -510,7 +510,7 @@ authorization_test_() ->
 
 t_admin_is_always_authorized() ->
     ?_test(begin
-        expect_rep_user_ctx(<<"someuser">>, <<"_admin">>),
+        expect_job_data(#{?REP => #{?REP_USER => <<"someuser">>}}),
         UserCtx = #user_ctx{name = <<"adm">>, roles = [<<"_admin">>]},
         ?assertEqual(ok, check_authorization(<<"RepId">>, UserCtx))
     end).
@@ -518,8 +518,8 @@ t_admin_is_always_authorized() ->
 
 t_username_must_match() ->
     ?_test(begin
-        expect_rep_user_ctx(<<"user">>, <<"somerole">>),
-        UserCtx1 = #user_ctx{name = <<"user">>, roles = [<<"somerole">>]},
+        expect_job_data(#{?REP => #{?REP_USER => <<"user1">>}}),
+        UserCtx1 = #user_ctx{name = <<"user1">>, roles = [<<"somerole">>]},
         ?assertEqual(ok, check_authorization(<<"RepId">>, UserCtx1)),
         UserCtx2 = #user_ctx{name = <<"other">>, roles = [<<"somerole">>]},
         ?assertThrow({unauthorized, _}, check_authorization(<<"RepId">>,
@@ -529,12 +529,15 @@ t_username_must_match() ->
 
 t_replication_not_found() ->
     ?_test(begin
-        meck:expect(couch_replicator_scheduler, rep_state, 1, nil),
+        expect_job_data({error, not_found}),
         UserCtx1 = #user_ctx{name = <<"user">>, roles = [<<"somerole">>]},
         ?assertEqual(not_found, check_authorization(<<"RepId">>, UserCtx1)),
         UserCtx2 = #user_ctx{name = <<"adm">>, roles = [<<"_admin">>]},
         ?assertEqual(not_found, check_authorization(<<"RepId">>, UserCtx2))
     end).
 
+
+expect_job_data(JobData) ->
+    meck:expect(couch_replicator_jobs, get_job_data, 2, JobData).
 
 -endif.

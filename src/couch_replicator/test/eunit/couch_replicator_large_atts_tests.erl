@@ -28,15 +28,13 @@
 
 
 setup() ->
-    DbName = ?tempdb(),
-    {ok, Db} = couch_db:create(DbName, [?ADMIN_CTX]),
-    ok = couch_db:close(Db),
-    DbName.
+    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
+    fabric2_db:name(Db).
 
 setup(remote) ->
     {remote, setup()};
 setup({A, B}) ->
-    Ctx = test_util:start_couch([couch_replicator]),
+    Ctx = test_util:start_couch([fabric, couch_replicator]),
     config:set("attachments", "compressible_types", "text/*", false),
     Source = setup(A),
     Target = setup(B),
@@ -45,8 +43,7 @@ setup({A, B}) ->
 teardown({remote, DbName}) ->
     teardown(DbName);
 teardown(DbName) ->
-    ok = couch_server:delete(DbName, [?ADMIN_CTX]),
-    ok.
+    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
 
 teardown(_, {Ctx, {Source, Target}}) ->
     teardown(Source),
@@ -95,7 +92,6 @@ should_compare_databases(Source, Target) ->
 
 
 populate_db(DbName, DocCount) ->
-    {ok, Db} = couch_db:open_int(DbName, []),
     Docs = lists:foldl(
         fun(DocIdCounter, Acc) ->
             Doc = #doc{
@@ -109,8 +105,8 @@ populate_db(DbName, DocCount) ->
             [Doc | Acc]
         end,
         [], lists:seq(1, DocCount)),
-    {ok, _} = couch_db:update_docs(Db, Docs, []),
-    couch_db:close(Db).
+    couch_replicator_test_helper:create_docs(DbName, Docs).
+
 
 att(Name, Size, Type) ->
     couch_att:new([
