@@ -41,7 +41,7 @@
 
 -spec replicate({[_]}, any()) ->
     {ok, {continuous, binary()}} |
-    {ok, {[_]}} |
+    {ok, #{}} |
     {ok, {cancelled, binary()}} |
     {error, any()} |
     no_return().
