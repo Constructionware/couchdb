@@ -35,6 +35,13 @@ decode_multipart_stream(ContentType, DataFun, Ref) ->
             fun(Next) -> mp_parse_doc(Next, []) end),
         unlink(Parent)
         end),
+    spawn(fun() ->
+       monitor(process, Parser),
+       receive
+          {'DOWN', _, _, _, Reason} ->
+            couch_log:error("~n XKCD: mp parser ~p died: ~p parent:~p~n", [Parser, Reason, Parent])
+        end
+    end),
     Parser ! {get_doc_bytes, Ref, self()},
     receive
     {started_open_doc_revs, NewRef} ->
