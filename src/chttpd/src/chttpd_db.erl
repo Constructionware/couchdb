@@ -1198,6 +1198,7 @@ db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     ("multipart/related;" ++ _) = ContentType ->
         couch_httpd:check_max_request_length(Req),
         couch_httpd_multipart:num_mp_writers(1),
+        couch_log:error("ddddddddd DO_DOC_REQ MP DocId ~p~n", [DocId]),
         {ok, Doc0, WaitFun, Parser} = couch_doc:doc_from_multi_part_stream(ContentType,
                 fun() -> receive_request_data(Req) end),
         Doc = couch_doc_from_req(Req, Db, DocId, Doc0),
