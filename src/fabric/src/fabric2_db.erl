@@ -1712,7 +1712,14 @@ batch_update_docs(#bacc{db = Db} = BAcc) ->
                 },
                 batch_update_interactive_tx(BAccTx1);
             true ->
-                BAccTx1 = batch_update_replicated_tx(BAccTx),
+                BAccTx1 = try
+                   batch_update_replicated_tx(BAccTx)
+                catch Tag:Err ->
+                        Stack = erlang:get_stacktrace(),
+                        couch_log:error("~n KABAM IN TX ~p ~p ~n ~p ~n", [Tag, Err, Stack]),
+                        erlang:raise(Tag, Err, Stack)
+                end,
+                %BAccTx1 = trybatch_update_replicated_tx(BAccTx),
                 % For replicated updates reset `seen` after every transaction
                 BAccTx1#bacc{seen = []}
         end
