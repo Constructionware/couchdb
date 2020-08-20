@@ -7,15 +7,72 @@
 
 
 -export([
+    start_couch/0,
+    stop_couch/1,
+
+    create_db/0,
+    create_db/1,
+    delete_db/1,
+
+    db_url/1,
+
     create_docs/2,
+
     compare_dbs/2,
     compare_dbs/3,
+    compare_fold/4,
+
     compare_docs/2,
-    db_url/1,
-    replicate/1,
+
     get_pid/1,
-    replicate/2
+
+    replicate/1,
+    replicate/2,
+    replicate_continuous/1,
+    replicate_continuous/2
 ]).
+
+
+-define(USERNAME, "rep_eunit_admin").
+-define(PASSWORD, "rep_eunit_password").
+
+
+start_couch() ->
+    Ctx = test_util:start_couch([fabric, chttpd, couch_replicator]),
+    Hashed = couch_passwords:hash_admin_password(?PASSWORD),
+    ok = config:set("admins", ?USERNAME, ?b2l(Hashed), _Persist=false),
+    Ctx.
+
+
+stop_couch(Ctx) ->
+    config:delete("admins", ?USERNAME),
+    test_util:stop_couch(Ctx).
+
+
+create_db() ->
+    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
+    fabric2_db:name(Db).
+
+
+create_db(DbName) when is_binary(DbName) ->
+    {ok, Db} = fabric2_db:create(DbName, [?ADMIN_CTX]),
+    fabric2_db:name(Db).
+
+
+delete_db(DbName) ->
+    try
+        ok = fabric2_db:delete(DbName, [?ADMIN_CTX])
+    catch
+        error:database_does_not_exist ->
+            ok
+    end.
+
+
+db_url(DbName) ->
+    Addr = config:get("chttpd", "bind_address", "127.0.0.1"),
+    Port = mochiweb_socket_server:get(chttpd, port),
+    Fmt = "http://~s:~s@~s:~b/~s",
+    ?l2b(io_lib:format(Fmt, [?USERNAME, ?PASSWORD, Addr, Port, DbName])).
 
 
 create_docs(DbName, Docs) when is_binary(DbName), is_list(Docs) ->
@@ -43,7 +100,7 @@ compare_dbs(Source, Target) ->
 compare_dbs(Source, Target, ExceptIds) when is_binary(Source),
         is_binary(Target), is_list(ExceptIds) ->
     Fun = fun(SrcDoc, TgtDoc, ok) ->
-        case lists:memeber(SrcDoc#doc.id, ExceptIds) of
+        case lists:member(SrcDoc#doc.id, ExceptIds) of
             true -> ?assertEqual(not_found, TgtDoc);
             false -> compare_docs(SrcDoc, TgtDoc)
         end,
@@ -145,10 +202,6 @@ att_decoded_md5(Att) ->
         couch_hash:md5_hash_init()),
     couch_hash:md5_hash_final(Md50).
 
-db_url(DbName) ->
-    Addr = config:get("httpd", "bind_address", "127.0.0.1"),
-    Port = mochiweb_socket_server:get(couch_httpd, port),
-    ?l2b(io_lib:format("http://~s:~b/~s", [Addr, Port, DbName])).
 
 
 get_pid(RepId) ->
@@ -167,36 +220,66 @@ get_pid(RepId) ->
 replicate(Source, Target) ->
     replicate(#{
         <<"source">> => Source,
-        <<"target">> => Target
+        <<"target">> => Target,
+        %<<"worker_processes">> => 3,
+        %<<"http_connections">> => 2,
+        <<"retries_per_request">> => 1
     }).
 
 
-replicate(Rep) when is_tuple(Rep) orelse is_map(Rep) ->
-    {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, ?ADMIN_USER),
+replicate({[_ | _]} = EJson) ->
+    Str = couch_util:json_encode(EJson),
+    replicate(couch_util:json_decode(Str, [return_maps]));
+
+replicate(#{} = Rep0) ->
+    Rep = maybe_db_urls(Rep0),
+    {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, null),
     ok = cancel(Id),
-    {ok, Res = #{}} = couch_replicator:replicate(Rep, ?ADMIN_CTX),
-    io:format(standard_error, "~nXXXX REP RESULT :~p~n", [Res]),
-    ok = cancel(Id).
+    try
+        couch_replicator:replicate(Rep, ?ADMIN_USER)
+    after
+        ok = cancel(Id)
+    end.
 
 
 replicate_continuous(Source, Target) ->
-    replicate(#{
+    replicate_continuous(#{
         <<"source">> => Source,
         <<"target">> => Target,
         <<"continuous">> => true
     }).
 
 
-replicate_continuous(Rep) when is_tuple(Rep) orelse is_map(Rep) ->
-    {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, ?ADMIN_USER),
+replicate_continuous({[_ | _]} = EJson) ->
+     Str = couch_util:json_encode(EJson),
+    replicate_continuous(couch_util:json_decode(Str, [return_maps]));
+
+replicate_continuous(#{<<"continuous">> := true} = Rep0) ->
+    Rep = maybe_db_urls(Rep0),
+    {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, null),
     ok = cancel(Id),
-    {ok, {continuous, Id}} = couch_replicator:replicate(Rep, ?ADMIN_CTX),
+    {ok, {continuous, Id}} = couch_replicator:replicate(Rep, ?ADMIN_USER),
     {ok, get_pid(Id), Id}.
 
 
 cancel(Id) when is_binary(Id) ->
     CancelRep = #{<<"cancel">> => true, <<"id">> => Id},
-    case couch_replicator:replicate(CancelRep, ?ADMIN_CTX) of
+    case couch_replicator:replicate(CancelRep, ?ADMIN_USER) of
         {ok, {cancelled, <<_/binary>>}} -> ok;
         {error, not_found} -> ok
     end.
+
+
+maybe_db_urls(#{} = Rep) ->
+    #{<<"source">> := Src, <<"target">> := Tgt} = Rep,
+    Src1 = case Src of
+        <<"http://",_/binary>> -> Src;
+        <<"https://",_binary>> -> Src;
+        <<_/binary>> -> db_url(Src)
+    end,
+    Tgt1 = case Tgt of
+        <<"http://",_/binary>> -> Tgt;
+        <<"https://",_/binary>> -> Tgt;
+        <<_/binary>> -> db_url(Tgt)
+    end,
+    Rep#{<<"source">> := Src1, <<"target">> := Tgt1}.

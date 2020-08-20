@@ -30,8 +30,8 @@ httpc_pool_test_() ->
         "httpc pool tests",
         {
             setup,
-            fun() -> test_util:start_couch([fabric, couch_replicator]) end,
-            fun test_util:stop_couch/1,
+            fun couch_replicator_test_helper:start_couch/0,
+            fun couch_replicator_test_helper:stop_couch/1,
             {
                 foreach,
                 fun setup/0, fun teardown/1,
@@ -165,8 +165,8 @@ loop(Parent, Ref, Worker, Pool) ->
     end.
 
 spawn_pool() ->
-    Host = config:get("httpd", "bind_address", "127.0.0.1"),
-    Port = config:get("httpd", "port", "5984"),
+    Host = config:get("chttpd", "bind_address", "127.0.0.1"),
+    Port = config:get("chttpd", "port", "5984"),
     {ok, Pool} = couch_replicator_httpc_pool:start_link(
         "http://" ++ Host ++ ":" ++ Port, [{max_connections, 3}]),
     Pool.

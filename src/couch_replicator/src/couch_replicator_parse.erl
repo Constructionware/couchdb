@@ -60,10 +60,15 @@ parse_rep_doc(RepDoc) ->
     Rep.
 
 
--spec parse_transient_rep({[_]}, user_name()) -> {ok, #{}}.
-parse_transient_rep({[_ | _]} = Doc, UserName) ->
+-spec parse_transient_rep({[_]} | #{}, user_name()) -> {ok, #{}}.
+parse_transient_rep({Props} = EJson, UserName) when is_list(Props) ->
+    Str = couch_util:json_encode(EJson),
+    Map = couch_util:json_decode(Str, [return_maps]),
+    parse_transient_rep(Map, UserName);
+
+parse_transient_rep(#{} = Body, UserName) ->
     {ok, Rep} = try
-        parse_rep(Doc, UserName)
+        parse_rep(Body, UserName)
     catch
         throw:{error, Reason} ->
             Stack = erlang:get_stacktrace(),

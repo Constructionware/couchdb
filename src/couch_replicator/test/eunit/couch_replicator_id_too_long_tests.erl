@@ -18,18 +18,18 @@
 
 
 setup(_) ->
-    Ctx = test_util:start_couch([fabric, couch_replicator]),
-    Source = create_db(),
+    Ctx = couch_replicator_test_helper:start_couch(),
+    Source = couch_replicator_test_helper:create_db(),
     create_doc(Source),
-    Target = create_db(),
+    Target = couch_replicator_test_helper:create_db(),
     {Ctx, {Source, Target}}.
 
 
 teardown(_, {Ctx, {Source, Target}}) ->
-    delete_db(Source),
-    delete_db(Target),
-    config:set("replicator", "max_document_id_length", "infinity"),
-    ok = test_util:stop_couch(Ctx).
+    couch_replicator_test_helper:delete_db(Source),
+    couch_replicator_test_helper:delete_db(Target),
+    config:delete("replicator", "max_document_id_length"),
+    ok = couch_replicator_test_helper:stop_couch(Ctx).
 
 
 id_too_long_replication_test_() ->
@@ -50,8 +50,8 @@ should_succeed({From, To}, {_Ctx, {Source, Target}}) ->
         {<<"source">>, db_url(From, Source)},
         {<<"target">>, db_url(To, Target)}
     ]},
-    config:set("replicator", "max_document_id_length", "5"),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    config:set("replicator", "max_document_id_length", "5", _Persist = false),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
     ?_assertEqual(ok, couch_replicator_test_helper:compare_dbs(Source, Target)).
 
 
@@ -60,24 +60,16 @@ should_fail({From, To}, {_Ctx, {Source, Target}}) ->
         {<<"source">>, db_url(From, Source)},
         {<<"target">>, db_url(To, Target)}
     ]},
-    config:set("replicator", "max_document_id_length", "4"),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
-    ?_assertError({badmatch, {not_found, missing}},
-        couch_replicator_test_helper:compare_dbs(Source, Target)).
-
-
-create_db() ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
+    config:set("replicator", "max_document_id_length", "4", _Persist = false),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
+    ExceptIds = [<<"12345">>],
+    ?_assertEqual(ok, couch_replicator_test_helper:compare_dbs(Source, Target,
+        ExceptIds)).
 
 
 create_doc(DbName) ->
     Docs = [#{<<"_id">> => <<"12345">>}],
     couch_replicator_test_helper:create_docs(DbName, Docs).
-
-
-delete_db(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
 
 
 db_url(remote, DbName) ->

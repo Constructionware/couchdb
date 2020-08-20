@@ -49,17 +49,18 @@
 
 
 setup(_) ->
-    Ctx = test_util:start_couch([fabric, couch_replicator]),
-    Source = create_db(),
+    Ctx = couch_replicator_test_helper:start_couch(),
+    Source = couch_replicator_test_helper:create_db(),
     create_docs(Source),
-    Target = create_db(),
+    Target = couch_replicator_test_helper:create_db(),
     {Ctx, {Source, Target}}.
 
+
 teardown(_, {Ctx, {Source, Target}}) ->
-    delete_db(Source),
-    delete_db(Target),
-    ok = application:stop(couch_replicator),
-    ok = test_util:stop_couch(Ctx).
+    couch_replicator_test_helper:delete_db(Source),
+    couch_replicator_test_helper:delete_db(Target),
+    ok = couch_replicator_test_helper:stop_couch(Ctx).
+
 
 filtered_replication_test_() ->
     Pairs = [{remote, remote}],
@@ -100,7 +101,7 @@ should_succeed({From, To}, {_Ctx, {Source, Target}}) ->
         {<<"target">>, db_url(To, Target)},
         {<<"filter">>, <<"filter_ddoc/testfilter">>}
     ]},
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
     %% FilteredFun is an Erlang version of following JS function
     %% function(doc, req){if (doc.class == 'mammal') return true;}
     FilterFun = fun(_DocId, {Props}) ->
@@ -125,7 +126,7 @@ should_succeed_with_query({From, To}, {_Ctx, {Source, Target}}) ->
             {<<"starts">>, <<"a">>}
         ]}}
     ]},
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
     FilterFun = fun(_DocId, {Props}) ->
         case couch_util:get_value(<<"class">>, Props) of
             <<"a", _/binary>> -> true;
@@ -151,7 +152,7 @@ should_succeed_with_view({From, To}, {_Ctx, {Source, Target}}) ->
             {<<"view">>, <<"filter_ddoc/mammals">>}
         ]}}
     ]},
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
     FilterFun = fun(_DocId, {Props}) ->
         couch_util:get_value(<<"class">>, Props) == <<"mammal">>
     end,
@@ -167,7 +168,8 @@ should_succeed_with_view({From, To}, {_Ctx, {Source, Target}}) ->
 
 
 compare_dbs(Source, Target, FilterFun) ->
-    {ok, TargetDbInfo} = fabirc2_db:get_db_info(Target),
+    {ok, TargetDb} = fabric2_db:open(Target, [?ADMIN_CTX]),
+    {ok, TargetDbInfo} = fabric2_db:get_db_info(TargetDb),
     Fun = fun(SrcDoc, TgtDoc, Acc) ->
         case FilterFun(SrcDoc#doc.id, SrcDoc#doc.body) of
             true -> [SrcDoc == TgtDoc | Acc];
@@ -178,11 +180,6 @@ compare_dbs(Source, Target, FilterFun) ->
     {ok, TargetDbInfo, Res}.
 
 
-create_db() ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
-
-
 create_docs(DbName) ->
     couch_replicator_test_helper:create_docs(DbName, [
         ?DDOC,
@@ -191,10 +188,6 @@ create_docs(DbName) ->
         #{<<"_id">> => <<"doc3">>, <<"class">> => <<"reptiles">>, <<"value">> => 3},
         #{<<"_id">> => <<"doc4">>, <<"class">> => <<"arthropods">>, <<"value">> => 2}
     ]).
-
-
-delete_db(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
 
 
 db_url(remote, DbName) ->

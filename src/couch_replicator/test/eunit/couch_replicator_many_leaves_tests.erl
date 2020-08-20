@@ -15,17 +15,12 @@
 -include_lib("couch/include/couch_eunit.hrl").
 -include_lib("couch/include/couch_db.hrl").
 
--import(couch_replicator_test_helper, [
-    db_url/1,
-    replicate/2
-]).
-
 -define(DOCS_CONFLICTS, [
     {<<"doc1">>, 10},
     % use some _design docs as well to test the special handling for them
     {<<"_design/doc2">>, 100},
     % a number > MaxURLlength (7000) / length(DocRevisionString)
-    {<<"doc3">>, 210}
+    {<<"doc3">>, 210} %210}
 ]).
 -define(NUM_ATTS, 2).
 -define(TIMEOUT_EUNIT, 60).
@@ -33,14 +28,12 @@
 -define(io2b(Io), iolist_to_binary(Io)).
 
 setup() ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
-
+     couch_replicator_test_helper:create_db().
 
 setup(remote) ->
     {remote, setup()};
 setup({A, B}) ->
-    Ctx = test_util:start_couch([fabric, couch_replicator]),
+    Ctx = couch_replicator_test_helper:start_couch(),
     Source = setup(A),
     Target = setup(B),
     {Ctx, {Source, Target}}.
@@ -48,14 +41,14 @@ setup({A, B}) ->
 teardown({remote, DbName}) ->
     teardown(DbName);
 teardown(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
+    couch_replicator_test_helper:delete_db(DbName).
 
 
 teardown(_, {Ctx, {Source, Target}}) ->
     teardown(Source),
     teardown(Target),
-    ok = application:stop(couch_replicator),
-    ok = test_util:stop_couch(Ctx).
+    ok = couch_replicator_test_helper:stop_couch(Ctx).
+
 
 docs_with_many_leaves_test_() ->
     Pairs = [{remote, remote}],
@@ -81,42 +74,28 @@ should_populate_replicate_compact({From, To}, {_Ctx, {Source, Target}}) ->
         should_verify_target(Source, Target)
      ]}}.
 
+
 should_populate_source({remote, Source}) ->
-    should_populate_source(Source);
-should_populate_source(Source) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(populate_db(Source))}.
 
-should_replicate({remote, Source}, Target) ->
-    should_replicate(db_url(Source), Target);
-should_replicate(Source, {remote, Target}) ->
-    should_replicate(Source, db_url(Target));
-should_replicate(Source, Target) ->
+should_replicate({remote, Source}, {remote, Target}) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(replicate(Source, Target))}.
 
-should_verify_target({remote, Source}, Target) ->
-    should_verify_target(Source, Target);
-should_verify_target(Source, {remote, Target}) ->
-    should_verify_target(Source, Target);
-should_verify_target(Source, Target) ->
+should_verify_target({remote, Source}, {remote, Target}) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(begin
-        {ok, SourceDb} = couch_db:open_int(Source, []),
-        {ok, TargetDb} = couch_db:open_int(Target, []),
-        verify_target(SourceDb, TargetDb, ?DOCS_CONFLICTS),
-        ok = couch_db:close(SourceDb),
-        ok = couch_db:close(TargetDb)
+        {ok, SourceDb} = fabric2_db:open(Source, [?ADMIN_CTX]),
+        {ok, TargetDb} = fabric2_db:open(Target, [?ADMIN_CTX]),
+        verify_target(SourceDb, TargetDb, ?DOCS_CONFLICTS)
     end)}.
 
 should_add_attachments_to_source({remote, Source}) ->
-    should_add_attachments_to_source(Source);
-should_add_attachments_to_source(Source) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(begin
-        {ok, SourceDb} = couch_db:open_int(Source, [?ADMIN_CTX]),
-        add_attachments(SourceDb, ?NUM_ATTS, ?DOCS_CONFLICTS),
-        ok = couch_db:close(SourceDb)
+        {ok, SourceDb} = fabric2_db:open(Source, [?ADMIN_CTX]),
+        add_attachments(SourceDb, ?NUM_ATTS, ?DOCS_CONFLICTS)
     end)}.
 
 populate_db(DbName) ->
-    {ok, Db} = couch_db:open_int(DbName, [?ADMIN_CTX]),
+    {ok, Db} = fabric2_db:open(DbName, [?ADMIN_CTX]),
     lists:foreach(
        fun({DocId, NumConflicts}) ->
             Value = <<"0">>,
@@ -124,19 +103,19 @@ populate_db(DbName) ->
                 id = DocId,
                 body = {[ {<<"value">>, Value} ]}
             },
-            {ok, _} = couch_db:update_doc(Db, Doc, [?ADMIN_CTX]),
+            {ok, _} = fabric2_db:update_doc(Db, Doc),
             {ok, _} = add_doc_siblings(Db, DocId, NumConflicts)
-        end, ?DOCS_CONFLICTS),
-    couch_db:close(Db).
+        end, ?DOCS_CONFLICTS).
 
-add_doc_siblings(Db, DocId, NumLeaves) when NumLeaves > 0 ->
+
+add_doc_siblings(#{} = Db, DocId, NumLeaves) when NumLeaves > 0 ->
     add_doc_siblings(Db, DocId, NumLeaves, [], []).
 
-add_doc_siblings(Db, _DocId, 0, AccDocs, AccRevs) ->
-    {ok, []} = couch_db:update_docs(Db, AccDocs, [], replicated_changes),
+add_doc_siblings(#{} = Db, _DocId, 0, AccDocs, AccRevs) ->
+    {ok, []} = fabric2_db:update_docs(Db, AccDocs, [replicated_changes]),
     {ok, AccRevs};
 
-add_doc_siblings(Db, DocId, NumLeaves, AccDocs, AccRevs) ->
+add_doc_siblings(#{} = Db, DocId, NumLeaves, AccDocs, AccRevs) ->
     Value = ?l2b(?i2l(NumLeaves)),
     Rev = couch_hash:md5_hash(Value),
     Doc = #doc{
@@ -149,55 +128,60 @@ add_doc_siblings(Db, DocId, NumLeaves, AccDocs, AccRevs) ->
 
 verify_target(_SourceDb, _TargetDb, []) ->
     ok;
-verify_target(SourceDb, TargetDb, [{DocId, NumConflicts} | Rest]) ->
-    {ok, SourceLookups} = couch_db:open_doc_revs(
-        SourceDb,
-        DocId,
-        all,
-        [conflicts, deleted_conflicts]),
-    {ok, TargetLookups} = couch_db:open_doc_revs(
-        TargetDb,
-        DocId,
-        all,
-        [conflicts, deleted_conflicts]),
+verify_target(#{} = SourceDb, #{} = TargetDb, [{DocId, NumConflicts} | Rest]) ->
+    Opts = [conflicts, deleted_conflicts],
+    {ok, SourceLookups} = open_doc_revs(SourceDb, DocId, Opts),
+    {ok, TargetLookups} = open_doc_revs(TargetDb, DocId, Opts),
     SourceDocs = [Doc || {ok, Doc} <- SourceLookups],
     TargetDocs = [Doc || {ok, Doc} <- TargetLookups],
     Total = NumConflicts + 1,
     ?assertEqual(Total, length(TargetDocs)),
     lists:foreach(
         fun({SourceDoc, TargetDoc}) ->
-            SourceJson = couch_doc:to_json_obj(SourceDoc, [attachments]),
-            TargetJson = couch_doc:to_json_obj(TargetDoc, [attachments]),
-            ?assertEqual(SourceJson, TargetJson)
+            ?assertEqual(json_doc(SourceDoc), json_doc(TargetDoc))
         end,
         lists:zip(SourceDocs, TargetDocs)),
     verify_target(SourceDb, TargetDb, Rest).
 
 add_attachments(_SourceDb, _NumAtts,  []) ->
     ok;
-add_attachments(SourceDb, NumAtts,  [{DocId, NumConflicts} | Rest]) ->
-    {ok, SourceLookups} = couch_db:open_doc_revs(SourceDb, DocId, all, []),
+add_attachments(#{} = SourceDb, NumAtts,  [{DocId, NumConflicts} | Rest]) ->
+    {ok, SourceLookups} = open_doc_revs(SourceDb, DocId, []),
     SourceDocs = [Doc || {ok, Doc} <- SourceLookups],
     Total = NumConflicts + 1,
     ?assertEqual(Total, length(SourceDocs)),
     NewDocs = lists:foldl(
         fun(#doc{atts = Atts, revs = {Pos, [Rev | _]}} = Doc, Acc) ->
             NewAtts = lists:foldl(fun(I, AttAcc) ->
-                AttData = crypto:strong_rand_bytes(100),
-                NewAtt = couch_att:new([
-                    {name, ?io2b(["att_", ?i2l(I), "_",
-                        couch_doc:rev_to_str({Pos, Rev})])},
-                    {type, <<"application/foobar">>},
-                    {att_len, byte_size(AttData)},
-                    {data, AttData}
-                ]),
-                [NewAtt | AttAcc]
+                [att(I, {Pos, Rev}, 100) | AttAcc]
             end, [], lists:seq(1, NumAtts)),
             [Doc#doc{atts = Atts ++ NewAtts} | Acc]
         end,
         [], SourceDocs),
-    {ok, UpdateResults} = couch_db:update_docs(SourceDb, NewDocs, []),
-    NewRevs = [R || {ok, R} <- UpdateResults],
-    ?assertEqual(length(NewDocs), length(NewRevs)),
+    lists:foreach(fun(#doc{} = Doc) ->
+        ?assertMatch({ok, _}, fabric2_db:update_doc(SourceDb, Doc))
+    end, NewDocs),
     add_attachments(SourceDb, NumAtts, Rest).
 
+
+att(I, PosRev, Size) ->
+    Name =  ?io2b(["att_", ?i2l(I), "_", couch_doc:rev_to_str(PosRev)]),
+    AttData = crypto:strong_rand_bytes(Size),
+    couch_att:new([
+        {name, Name},
+        {type, <<"application/foobar">>},
+        {att_len, byte_size(AttData)},
+        {data, AttData}
+    ]).
+
+
+open_doc_revs(#{} = Db, DocId, Opts) ->
+    fabric2_db:open_doc_revs(Db, DocId, all, Opts).
+
+
+json_doc(#doc{} = Doc) ->
+    couch_doc:to_json_obj(Doc, [attachments]).
+
+
+replicate(Source, Target) ->
+    couch_replicator_test_helper:replicate(Source, Target).

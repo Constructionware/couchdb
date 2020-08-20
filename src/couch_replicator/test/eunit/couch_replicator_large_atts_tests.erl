@@ -15,11 +15,6 @@
 -include_lib("couch/include/couch_eunit.hrl").
 -include_lib("couch/include/couch_db.hrl").
 
--import(couch_replicator_test_helper, [
-    db_url/1,
-    replicate/2,
-    compare_dbs/2
-]).
 
 -define(ATT_SIZE_1, 2 * 1024 * 1024).
 -define(ATT_SIZE_2, round(6.6 * 1024 * 1024)).
@@ -28,13 +23,12 @@
 
 
 setup() ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
+    couch_replicator_test_helper:create_db().
 
 setup(remote) ->
     {remote, setup()};
 setup({A, B}) ->
-    Ctx = test_util:start_couch([fabric, couch_replicator]),
+    Ctx = couch_replicator_test_helper:start_couch(),
     config:set("attachments", "compressible_types", "text/*", false),
     Source = setup(A),
     Target = setup(B),
@@ -43,14 +37,14 @@ setup({A, B}) ->
 teardown({remote, DbName}) ->
     teardown(DbName);
 teardown(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
+    couch_replicator_test_helper:delete_db(DbName).
 
 teardown(_, {Ctx, {Source, Target}}) ->
     teardown(Source),
     teardown(Target),
+    config:delete("attachments", "compressible_types"),
+    ok = couch_replicator_test_helper:stop_couch(Ctx).
 
-    ok = application:stop(couch_replicator),
-    ok = test_util:stop_couch(Ctx).
 
 large_atts_test_() ->
     Pairs = [{remote, remote}],
@@ -72,22 +66,12 @@ should_populate_replicate_compact({From, To}, {_Ctx, {Source, Target}}) ->
                 should_compare_databases(Source, Target)]}}.
 
 should_populate_source({remote, Source}) ->
-    should_populate_source(Source);
-should_populate_source(Source) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(populate_db(Source, ?DOCS_COUNT))}.
 
-should_replicate({remote, Source}, Target) ->
-    should_replicate(db_url(Source), Target);
-should_replicate(Source, {remote, Target}) ->
-    should_replicate(Source, db_url(Target));
-should_replicate(Source, Target) ->
+should_replicate({remote, Source}, {remote, Target}) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(replicate(Source, Target))}.
 
-should_compare_databases({remote, Source}, Target) ->
-    should_compare_databases(Source, Target);
-should_compare_databases(Source, {remote, Target}) ->
-    should_compare_databases(Source, Target);
-should_compare_databases(Source, Target) ->
+should_compare_databases({remote, Source}, {remote, Target}) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(compare_dbs(Source, Target))}.
 
 
@@ -115,3 +99,11 @@ att(Name, Size, Type) ->
         {att_len, Size},
         {data, fun(Count) -> crypto:strong_rand_bytes(Count) end}
     ]).
+
+
+replicate(Source, Target) ->
+    couch_replicator_test_helper:replicate(Source, Target).
+
+
+compare_dbs(Source, Target) ->
+    couch_replicator_test_helper:compare_dbs(Source, Target).

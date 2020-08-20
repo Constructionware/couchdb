@@ -16,20 +16,18 @@
 -include_lib("couch/include/couch_db.hrl").
 -include_lib("couch_replicator/src/couch_replicator.hrl").
 
--define(USERNAME, "rep_admin").
--define(PASSWORD, "secret").
 
 setup() ->
-    Ctx = test_util:start_couch([fabric, couch_replicator, chttpd]),
-    Hashed = couch_passwords:hash_admin_password(?PASSWORD),
-    ok = config:set("admins", ?USERNAME, ?b2l(Hashed), _Persist=false),
+    Ctx = couch_replicator_test_helper:start_couch(),
     Source = ?tempdb(),
     Target = ?tempdb(),
     {Ctx, {Source, Target}}.
 
 
-teardown({Ctx, {_Source, _Target}}) ->
-    config:delete("admins", ?USERNAME),
+teardown({Ctx, {Source, Target}}) ->
+    delete_db(Source),
+    delete_db(Target),
+    ok = couch_replicator_test_helper:stop_couch(Ctx),
     ok = test_util:stop_couch(Ctx).
 
 
@@ -51,16 +49,16 @@ create_target_with_options_replication_test_() ->
 
 should_create_target_with_q_4({_Ctx, {Source, Target}}) ->
     RepObject = {[
-        {<<"source">>, db_url(Source)},
-        {<<"target">>, db_url(Target)},
+        {<<"source">>, Source},
+        {<<"target">>, Target},
         {<<"create_target">>, true},
         {<<"create_target_params">>, {[{<<"q">>, <<"4">>}]}}
     ]},
     create_db(Source),
     create_doc(Source),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
 
-    {TargetInfo} = db_info(Target),
+    TargetInfo = db_info(Target),
     {ClusterInfo} = couch_util:get_value(cluster, TargetInfo),
     delete_db(Source),
     delete_db(Target),
@@ -69,17 +67,17 @@ should_create_target_with_q_4({_Ctx, {Source, Target}}) ->
 
 should_create_target_with_q_2_n_1({_Ctx, {Source, Target}}) ->
     RepObject = {[
-        {<<"source">>, db_url(Source)},
-        {<<"target">>, db_url(Target)},
+        {<<"source">>, Source},
+        {<<"target">>, Target},
         {<<"create_target">>, true},
         {<<"create_target_params">>,
             {[{<<"q">>, <<"2">>}, {<<"n">>, <<"1">>}]}}
     ]},
     create_db(Source),
     create_doc(Source),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
 
-    {TargetInfo} = db_info(Target),
+    TargetInfo = db_info(Target),
     {ClusterInfo} = couch_util:get_value(cluster, TargetInfo),
     delete_db(Source),
     delete_db(Target),
@@ -91,15 +89,15 @@ should_create_target_with_q_2_n_1({_Ctx, {Source, Target}}) ->
 
 should_create_target_with_default({_Ctx, {Source, Target}}) ->
     RepObject = {[
-        {<<"source">>, db_url(Source)},
-        {<<"target">>, db_url(Target)},
+        {<<"source">>, Source},
+        {<<"target">>, Target},
         {<<"create_target">>, true}
     ]},
     create_db(Source),
     create_doc(Source),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
 
-    {TargetInfo} = db_info(Target),
+    TargetInfo = db_info(Target),
     {ClusterInfo} = couch_util:get_value(cluster, TargetInfo),
     delete_db(Source),
     delete_db(Target),
@@ -108,19 +106,19 @@ should_create_target_with_default({_Ctx, {Source, Target}}) ->
 
 should_not_create_target_with_q_any({_Ctx, {Source, Target}}) ->
     RepObject = {[
-        {<<"source">>, db_url(Source)},
-        {<<"target">>, db_url(Target)},
+        {<<"source">>, Source},
+        {<<"target">>, Target},
         {<<"create_target">>, false},
         {<<"create_target_params">>, {[{<<"q">>, <<"1">>}]}}
     ]},
     create_db(Source),
     create_doc(Source),
-    {error, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {error, _} = couch_replicator_test_helper:replicate(RepObject),
     Exists = try
         fabric2_db:open(Target, [?ADMIN_CTX]),
         ?assert(false)
     catch
-        error:database_does_not_exit ->
+        error:database_does_not_exist ->
             database_does_not_exist
     end,
     delete_db(Source),
@@ -134,19 +132,14 @@ create_doc(DbName) ->
 
 
 create_db(DbName) ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
+    couch_replicator_test_helper:create_db(DbName).
 
 
 delete_db(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
+    couch_replicator_test_helper:delete_db(DbName).
 
 
 db_info(DbName) ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
+    {ok, Db} = fabric2_db:open(DbName, [?ADMIN_CTX]),
     {ok, Info} = fabric2_db:get_db_info(Db),
     Info.
-
-
-db_url(DbName) ->
-    couch_replicator_test_helper:db_url(DbName).

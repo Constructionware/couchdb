@@ -18,18 +18,18 @@
 
 
 setup(_) ->
-    Ctx = test_util:start_couch([fabric, couch_replicator]),
-    Source = create_db(),
+    Ctx = couch_replicator_test_helper:start_couch(),
+    Source = couch_replicator_test_helper:create_db(),
     create_doc_with_attachment(Source, <<"doc">>, 1000),
-    Target = create_db(),
+    Target = couch_replicator_test_helper:create_db(),
     {Ctx, {Source, Target}}.
 
 
 teardown(_, {Ctx, {Source, Target}}) ->
-    delete_db(Source),
-    delete_db(Target),
+    couch_replicator_test_helper:delete_db(Source),
+    couch_replicator_test_helper:delete_db(Target),
     config:delete("couchdb", "max_attachment_size"),
-    ok = test_util:stop_couch(Ctx).
+    ok = couch_replicator_test_helper:stop_couch(Ctx).
 
 
 attachment_too_large_replication_test_() ->
@@ -51,7 +51,7 @@ should_succeed({From, To}, {_Ctx, {Source, Target}}) ->
         {<<"target">>, db_url(To, Target)}
     ]},
     config:set("couchdb", "max_attachment_size", "1000", _Persist = false),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
     ?_assertEqual(ok, couch_replicator_test_helper:compare_dbs(Source, Target)).
 
 
@@ -61,14 +61,10 @@ should_fail({From, To}, {_Ctx, {Source, Target}}) ->
         {<<"target">>, db_url(To, Target)}
     ]},
     config:set("couchdb", "max_attachment_size", "999", _Persist = false),
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
-    ?_assertError({badmatch, {not_found, missing}},
-        couch_replicator_test_helper:compare_dbs(Source, Target)).
-
-
-create_db() ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
+    ExceptIds = [<<"doc">>],
+    ?_assertEqual(ok, couch_replicator_test_helper:compare_dbs(Source,
+        Target, ExceptIds)).
 
 
 create_doc_with_attachment(DbName, DocId, AttSize) ->
@@ -86,10 +82,6 @@ att(Size) when is_integer(Size), Size >= 1 ->
             << <<"x">> || _ <- lists:seq(1, Size) >>
         end}
     ])].
-
-
-delete_db(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
 
 
 db_url(remote, DbName) ->
