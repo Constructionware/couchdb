@@ -20,7 +20,7 @@
     % use some _design docs as well to test the special handling for them
     {<<"_design/doc2">>, 100},
     % a number > MaxURLlength (7000) / length(DocRevisionString)
-    {<<"doc3">>, 210} %210}
+    {<<"doc3">>, 210}
 ]).
 -define(NUM_ATTS, 2).
 -define(TIMEOUT_EUNIT, 60).
@@ -184,4 +184,5 @@ json_doc(#doc{} = Doc) ->
 
 
 replicate(Source, Target) ->
-    couch_replicator_test_helper:replicate(Source, Target).
+    Res = couch_replicator_test_helper:replicate(Source, Target),
+    ?assertMatch({ok, _}, Res).
