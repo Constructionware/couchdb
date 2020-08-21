@@ -418,12 +418,13 @@ db_req(#httpd{method='POST', path_parts=[DbName]}=Req, Db) ->
         _ ->
             Doc1
     end,
-    DocId = Doc2#doc.id,
+    Doc3 = read_att_data(Doc2),
+    DocId = Doc3#doc.id,
     case chttpd:qs_value(Req, "batch") of
     "ok" ->
         % async_batching
         spawn(fun() ->
-                case catch(fabric2_db:update_doc(Db, Doc2, [])) of
+                case catch(fabric2_db:update_doc(Db, Doc3, [])) of
                 {ok, _} ->
                     chttpd_stats:incr_writes(),
                     ok;
@@ -443,7 +444,7 @@ db_req(#httpd{method='POST', path_parts=[DbName]}=Req, Db) ->
         % normal
         DocUrl = absolute_uri(Req, [$/, couch_util:url_encode(DbName),
             $/, couch_util:url_encode(DocId)]),
-        case fabric2_db:update_doc(Db, Doc2, []) of
+        case fabric2_db:update_doc(Db, Doc3, []) of
         {ok, NewRev} ->
             chttpd_stats:incr_writes(),
             HttpCode = 201;
@@ -1170,7 +1171,8 @@ db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
     NewDoc = Doc#doc{
         atts = UpdatedAtts ++ OldAtts2
     },
-    case fabric2_db:update_doc(Db, NewDoc, []) of
+    NewDoc1 = read_att_data(NewDoc),
+    case fabric2_db:update_doc(Db, NewDoc1, []) of
     {ok, NewRev} ->
         chttpd_stats:incr_writes(),
         HttpCode = 201;
@@ -1198,7 +1200,6 @@ db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     ("multipart/related;" ++ _) = ContentType ->
         couch_httpd:check_max_request_length(Req),
         couch_httpd_multipart:num_mp_writers(1),
-        couch_log:error("ddddddddd DO_DOC_REQ MP DocId ~p~n", [DocId]),
         {ok, Doc0, WaitFun, Parser} = couch_doc:doc_from_multi_part_stream(ContentType,
                 fun() -> receive_request_data(Req) end),
         Doc = couch_doc_from_req(Req, Db, DocId, Doc0),
@@ -1215,8 +1216,8 @@ db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
         case chttpd:qs_value(Req, "batch") of
         "ok" ->
             % batch
-            Doc = couch_doc_from_req(Req, Db, DocId, chttpd:json_body(Req)),
-
+            Doc0 = couch_doc_from_req(Req, Db, DocId, chttpd:json_body(Req)),
+            Doc = read_att_data(Doc0),
             spawn(fun() ->
                     case catch(fabric2_db:update_doc(Db, Doc, [])) of
                     {ok, _} ->
@@ -1476,7 +1477,8 @@ http_code_from_status(Status) ->
             200
     end.
 
-update_doc(Db, DocId, #doc{deleted=Deleted, body=DocBody}=Doc, Options) ->
+update_doc(Db, DocId, #doc{deleted=Deleted, body=DocBody}=Doc0, Options) ->
+    Doc = read_att_data(Doc0),
     case fabric2_db:update_doc(Db, Doc, Options) of
     {ok, NewRev} ->
         Accepted = false;
@@ -1763,9 +1765,10 @@ db_attachment_req(#httpd{method=Method}=Req, Db, DocId, FileNameParts)
     end,
 
     #doc{atts=Atts} = Doc,
-    DocEdited = Doc#doc{
+    DocEdited0 = Doc#doc{
         atts = NewAtt ++ [A || A <- Atts, couch_att:fetch(name, A) /= FileName]
     },
+    DocEdited = read_att_data(DocEdited0),
     case fabric2_db:update_doc(Db, DocEdited, []) of
     {ok, UpdatedRev} ->
         chttpd_stats:incr_writes(),
@@ -2237,3 +2240,9 @@ bulk_get_json_error(DocId, Rev, Error, Reason) ->
                              {<<"rev">>, Rev},
                              {<<"error">>, Error},
                              {<<"reason">>, Reason}]}}]}).
+
+
+read_att_data(#doc{} = Doc) ->
+    #doc{atts = Atts} = Doc,
+    Atts1 = lists:map(fun couch_att:read_data/1, Atts),
+    Doc#doc{atts = Atts1}.
