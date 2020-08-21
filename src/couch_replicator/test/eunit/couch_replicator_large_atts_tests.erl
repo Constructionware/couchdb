@@ -28,22 +28,28 @@ setup() ->
 setup(remote) ->
     {remote, setup()};
 setup({A, B}) ->
-    Ctx = couch_replicator_test_helper:start_couch(),
+    DbCtx = couch_replicator_test_helper:start_couch(),
+    CompressibleCfg = config:get("attachments", "compressible_types"),
     config:set("attachments", "compressible_types", "text/*", false),
     Source = setup(A),
     Target = setup(B),
-    {Ctx, {Source, Target}}.
+    {{DbCtx, CompressibleCfg}, {Source, Target}}.
 
 teardown({remote, DbName}) ->
     teardown(DbName);
 teardown(DbName) ->
     couch_replicator_test_helper:delete_db(DbName).
 
-teardown(_, {Ctx, {Source, Target}}) ->
+teardown(_, {{DbCtx, CompressibleCfg}, {Source, Target}}) ->
     teardown(Source),
     teardown(Target),
-    config:delete("attachments", "compressible_types"),
-    ok = couch_replicator_test_helper:stop_couch(Ctx).
+    case CompressibleCfg of
+        undefined ->
+            config:delete("attachments", "compressible_types");
+        _ ->
+            config:set("attachments", "compressible_types", CompressibleCfg)
+    end
+    ok = couch_replicator_test_helper:stop_couch(DbCtx).
 
 
 large_atts_test_() ->

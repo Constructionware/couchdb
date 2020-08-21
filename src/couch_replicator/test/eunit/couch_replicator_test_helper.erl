@@ -220,10 +220,7 @@ get_pid(RepId) ->
 replicate(Source, Target) ->
     replicate(#{
         <<"source">> => Source,
-        <<"target">> => Target,
-        %<<"worker_processes">> => 3,
-        %<<"http_connections">> => 2,
-        <<"retries_per_request">> => 1
+        <<"target">> => Target
     }).
 
 

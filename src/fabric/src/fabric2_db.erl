@@ -245,14 +245,14 @@ delete(DbName, Options) ->
 undelete(DbName, TgtDbName, TimeStamp, Options) ->
     case validate_dbname(TgtDbName) of
         ok ->
-            {Resp, DbUUID} = fabric2_fdb:transactional(DbName, Options,
+            Resp = fabric2_fdb:transactional(DbName, Options,
                 fun(TxDb) ->
-                    Res = fabric2_fdb:undelete(TxDb, TgtDbName, TimeStamp),
-                    {Res, get_uuid(TxDb)}
+                    fabric2_fdb:undelete(TxDb, TgtDbName, TimeStamp)
                 end
             ),
             if Resp /= ok -> Resp; true ->
-                fabric2_db_plugin:after_db_create(DbName, DbUUID),
+                {ok, Db} = open(TgtDbName, Options),
+                fabric2_db_plugin:after_db_create(TgtDbName, get_uuid(Db)),
                 Resp
             end;
         Error ->
@@ -1712,14 +1712,7 @@ batch_update_docs(#bacc{db = Db} = BAcc) ->
                 },
                 batch_update_interactive_tx(BAccTx1);
             true ->
-                BAccTx1 = try
-                   batch_update_replicated_tx(BAccTx)
-                catch Tag:Err ->
-                        Stack = erlang:get_stacktrace(),
-                        couch_log:error("~n KABAM IN TX ~p ~p ~n ~p ~n", [Tag, Err, Stack]),
-                        erlang:raise(Tag, Err, Stack)
-                end,
-                %BAccTx1 = trybatch_update_replicated_tx(BAccTx),
+                BAccTx1 = batch_update_replicated_tx(BAccTx),
                 % For replicated updates reset `seen` after every transaction
                 BAccTx1#bacc{seen = []}
         end
