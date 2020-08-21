@@ -312,7 +312,7 @@ convert_fold(<<"connection_timeout">>, V, Acc) ->
     Acc#{<<"connection_timeout">> => bin2int(V, <<"connection_timeout">>)};
 
 convert_fold(<<"retries_per_request">>, V, Acc) ->
-    Acc#{<<"retries">> => bin2int(V, <<"retries_per_request">>)};
+    Acc#{<<"retries_per_request">> => bin2int(V, <<"retries_per_request">>)};
 
 convert_fold(<<"socket_options">>, V, Acc) ->
     Acc#{<<"socket_options">> => parse_sock_opts(V)};
