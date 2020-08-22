@@ -14,6 +14,7 @@
     create_db/1,
     delete_db/1,
 
+    server_url/0,
     db_url/1,
 
     create_docs/2,
@@ -29,7 +30,10 @@
     replicate/1,
     replicate/2,
     replicate_continuous/1,
-    replicate_continuous/2
+    replicate_continuous/2,
+
+    cancel/1,
+    cancel/2
 ]).
 
 
@@ -68,11 +72,15 @@ delete_db(DbName) ->
     end.
 
 
-db_url(DbName) ->
+server_url() ->
     Addr = config:get("chttpd", "bind_address", "127.0.0.1"),
     Port = mochiweb_socket_server:get(chttpd, port),
-    Fmt = "http://~s:~s@~s:~b/~s",
-    ?l2b(io_lib:format(Fmt, [?USERNAME, ?PASSWORD, Addr, Port, DbName])).
+    Fmt = "http://~s:~s@~s:~b",
+    ?l2b(io_lib:format(Fmt, [?USERNAME, ?PASSWORD, Addr, Port])).
+
+
+db_url(DbName) ->
+    ?l2b(io_lib:format("~s/~s", [server_url(), DbName])).
 
 
 create_docs(DbName, Docs) when is_binary(DbName), is_list(Docs) ->
@@ -209,7 +217,7 @@ get_pid(RepId) ->
         {ok, JobId0} -> JobId0;
         {error, not_found} -> RepId
     end,
-    {ok, #{<<"state">> := <<"running">>, <<"rep_pid">> := Pid0}} =
+    {ok, #{<<"state">> := <<"running">>, <<"pid">> := Pid0}} =
         couch_replicator_jobs:get_job_data(undefined, JobId),
     Pid = list_to_pid(binary_to_list(Pid0)),
     ?assert(is_pid(Pid)),
@@ -248,15 +256,15 @@ replicate_continuous(Source, Target) ->
 
 
 replicate_continuous({[_ | _]} = EJson) ->
-     Str = couch_util:json_encode(EJson),
+    Str = couch_util:json_encode(EJson),
     replicate_continuous(couch_util:json_decode(Str, [return_maps]));
 
 replicate_continuous(#{<<"continuous">> := true} = Rep0) ->
     Rep = maybe_db_urls(Rep0),
     {ok, Id, _} = couch_replicator_parse:parse_transient_rep(Rep, null),
     ok = cancel(Id),
-    {ok, {continuous, Id}} = couch_replicator:replicate(Rep, ?ADMIN_USER),
-    {ok, get_pid(Id), Id}.
+    {ok, {continuous, RepId}} = couch_replicator:replicate(Rep, ?ADMIN_USER),
+    {ok, get_pid(RepId), RepId}.
 
 
 cancel(Id) when is_binary(Id) ->
@@ -264,6 +272,19 @@ cancel(Id) when is_binary(Id) ->
     case couch_replicator:replicate(CancelRep, ?ADMIN_USER) of
         {ok, {cancelled, <<_/binary>>}} -> ok;
         {error, not_found} -> ok
+    end.
+
+
+cancel(Id, Pid) when is_pid(Pid), is_binary(Id) ->
+    Ref = monitor(process, Pid),
+    try
+        cancel(Id)
+    after
+        receive
+            {'DOWN', Ref, _, _, _} -> ok
+        after 60000 ->
+           error(replicator_pid_death_timeout)
+        end
     end.
 
 
