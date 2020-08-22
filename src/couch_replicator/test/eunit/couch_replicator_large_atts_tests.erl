@@ -48,7 +48,7 @@ teardown(_, {{DbCtx, CompressibleCfg}, {Source, Target}}) ->
             config:delete("attachments", "compressible_types");
         _ ->
             config:set("attachments", "compressible_types", CompressibleCfg)
-    end
+    end,
     ok = couch_replicator_test_helper:stop_couch(DbCtx).
 
 
