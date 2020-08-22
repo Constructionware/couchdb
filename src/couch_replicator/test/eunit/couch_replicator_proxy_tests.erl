@@ -30,8 +30,8 @@ replicator_proxy_test_() ->
         "replicator proxy tests",
         {
             setup,
-            fun() -> test_util:start_couch([couch_replicator]) end,
-            fun test_util:stop_couch/1,
+            fun couch_replicator_test_helper:start_couch/0,
+            fun couch_replicator_test_helper:stop_couch/1,
             {
                 foreach,
                 fun setup/0, fun teardown/1,
@@ -53,11 +53,11 @@ parse_rep_doc_without_proxy(_) ->
             {<<"source">>, <<"http://unproxied.com">>},
             {<<"target">>, <<"http://otherunproxied.com">>}
         ]},
-        Rep = couch_replicator_docs:parse_rep_doc(NoProxyDoc),
+        Rep = couch_replicator_parse:parse_rep_doc(NoProxyDoc),
         Src = maps:get(?SOURCE, Rep),
         Tgt = maps:get(?TARGET, Rep),
-        ?assertEqual(maps:get(<<"proxy_url">>, Src), <<>>),
-        ?assertEqual(maps:get(<<"proxy_url">>, Tgt), <<>>)
+        ?assertEqual(null, maps:get(<<"proxy_url">>, Src)),
+        ?assertEqual(null, maps:get(<<"proxy_url">>, Tgt))
     end).
 
 
@@ -69,11 +69,11 @@ parse_rep_doc_with_proxy(_) ->
             {<<"target">>, <<"http://otherunproxied.com">>},
             {<<"proxy">>, ProxyURL}
         ]},
-        Rep = couch_replicator_docs:parse_rep_doc(ProxyDoc),
+        Rep = couch_replicator_parse:parse_rep_doc(ProxyDoc),
         Src = maps:get(?SOURCE, Rep),
         Tgt = maps:get(?TARGET, Rep),
-        ?assertEqual(maps:get(<<"proxy_url">>, Src), ProxyURL),
-        ?assertEqual(maps:get(<<"proxy_url">>, Tgt), ProxyURL)
+        ?assertEqual(ProxyURL, maps:get(<<"proxy_url">>, Src)),
+        ?assertEqual(ProxyURL, maps:get(<<"proxy_url">>, Tgt))
     end).
 
 
@@ -87,11 +87,11 @@ parse_rep_source_target_proxy(_) ->
             {<<"source_proxy">>, SrcProxyURL},
             {<<"target_proxy">>, TgtProxyURL}
         ]},
-        Rep = couch_replicator_docs:parse_rep_doc(ProxyDoc),
+        Rep = couch_replicator_parse:parse_rep_doc(ProxyDoc),
         Src = maps:get(?SOURCE, Rep),
         Tgt = maps:get(?TARGET, Rep),
-        ?assertEqual(maps:get(<<"proxy_url">>, Src), SrcProxyURL),
-        ?assertEqual(maps:get(<<"proxy_url">>, Tgt), TgtProxyURL)
+        ?assertEqual(SrcProxyURL, maps:get(<<"proxy_url">>, Src)),
+        ?assertEqual(TgtProxyURL, maps:get(<<"proxy_url">>, Tgt))
     end).
 
 
@@ -104,7 +104,7 @@ mutually_exclusive_proxy_and_source_proxy(_) ->
             {<<"source_proxy">>, <<"sourceproxy.local">>}
         ]},
         ?assertThrow({bad_rep_doc, _},
-            couch_replicator_docs:parse_rep_doc(ProxyDoc))
+            couch_replicator_parse:parse_rep_doc(ProxyDoc))
     end).
 
 
@@ -117,5 +117,5 @@ mutually_exclusive_proxy_and_target_proxy(_) ->
             {<<"target_proxy">>, <<"targetproxy.local">>}
         ]},
         ?assertThrow({bad_rep_doc, _},
-            couch_replicator_docs:parse_rep_doc(ProxyDoc))
+            couch_replicator_parse:parse_rep_doc(ProxyDoc))
     end).

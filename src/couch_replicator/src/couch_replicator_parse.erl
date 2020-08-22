@@ -379,15 +379,14 @@ parse_sock_opts(Term) ->
 -spec parse_proxy_params(binary() | #{}) -> #{}.
 parse_proxy_params(<<>>) ->
     #{};
-parse_proxy_params(ProxyUrl0) when is_binary(ProxyUrl0)->
-    ProxyUrl = binary_to_list(ProxyUrl0),
+parse_proxy_params(ProxyUrl) when is_binary(ProxyUrl)->
     #url{
         host = Host,
         port = Port,
         username = User,
         password = Passwd,
         protocol = Prot0
-    } = ibrowse_lib:parse_url(ProxyUrl),
+    } = ibrowse_lib:parse_url(binary_to_list(ProxyUrl)),
     Prot = case lists:member(Prot0, ?VALID_PROXY_PROTOCOLS) of
         true -> atom_to_binary(Prot0, utf8);
         false -> throw({error, <<"Unsupported proxy protocol">>})
