@@ -14,15 +14,7 @@
 
 -include_lib("couch/include/couch_eunit.hrl").
 -include_lib("couch_replicator/src/couch_replicator.hrl").
-%-include_lib("couch_replicator/include/couch_replicator_api_wrap.hrl").
-
-
-setup() ->
-    ok.
-
-
-teardown(_) ->
-    ok.
+-include_lib("fabric/test/fabric2_test.hrl").
 
 
 replicator_proxy_test_() ->
@@ -32,90 +24,76 @@ replicator_proxy_test_() ->
             setup,
             fun couch_replicator_test_helper:start_couch/0,
             fun couch_replicator_test_helper:stop_couch/1,
-            {
-                foreach,
-                fun setup/0, fun teardown/1,
-                [
-                    fun parse_rep_doc_without_proxy/1,
-                    fun parse_rep_doc_with_proxy/1,
-                    fun parse_rep_source_target_proxy/1,
-                    fun mutually_exclusive_proxy_and_source_proxy/1,
-                    fun mutually_exclusive_proxy_and_target_proxy/1
-                ]
-            }
+            with([
+                ?TDEF(parse_rep_doc_without_proxy),
+                ?TDEF(parse_rep_doc_with_proxy),
+                ?TDEF(parse_rep_source_target_proxy),
+                ?TDEF(mutually_exclusive_proxy_and_source_proxy),
+                ?TDEF(mutually_exclusive_proxy_and_target_proxy)
+            ])
         }
     }.
 
 
 parse_rep_doc_without_proxy(_) ->
-    ?_test(begin
-        NoProxyDoc = {[
-            {<<"source">>, <<"http://unproxied.com">>},
-            {<<"target">>, <<"http://otherunproxied.com">>}
-        ]},
-        Rep = couch_replicator_parse:parse_rep_doc(NoProxyDoc),
-        Src = maps:get(?SOURCE, Rep),
-        Tgt = maps:get(?TARGET, Rep),
-        ?assertEqual(null, maps:get(<<"proxy_url">>, Src)),
-        ?assertEqual(null, maps:get(<<"proxy_url">>, Tgt))
-    end).
+    NoProxyDoc = {[
+        {<<"source">>, <<"http://unproxied.com">>},
+        {<<"target">>, <<"http://otherunproxied.com">>}
+    ]},
+    Rep = couch_replicator_parse:parse_rep_doc(NoProxyDoc),
+    Src = maps:get(?SOURCE, Rep),
+    Tgt = maps:get(?TARGET, Rep),
+    ?assertEqual(null, maps:get(<<"proxy_url">>, Src)),
+    ?assertEqual(null, maps:get(<<"proxy_url">>, Tgt)).
 
 
 parse_rep_doc_with_proxy(_) ->
-    ?_test(begin
-        ProxyURL = <<"http://myproxy.com">>,
-        ProxyDoc = {[
-            {<<"source">>, <<"http://unproxied.com">>},
-            {<<"target">>, <<"http://otherunproxied.com">>},
-            {<<"proxy">>, ProxyURL}
-        ]},
-        Rep = couch_replicator_parse:parse_rep_doc(ProxyDoc),
-        Src = maps:get(?SOURCE, Rep),
-        Tgt = maps:get(?TARGET, Rep),
-        ?assertEqual(ProxyURL, maps:get(<<"proxy_url">>, Src)),
-        ?assertEqual(ProxyURL, maps:get(<<"proxy_url">>, Tgt))
-    end).
+    ProxyURL = <<"http://myproxy.com">>,
+    ProxyDoc = {[
+        {<<"source">>, <<"http://unproxied.com">>},
+        {<<"target">>, <<"http://otherunproxied.com">>},
+        {<<"proxy">>, ProxyURL}
+    ]},
+    Rep = couch_replicator_parse:parse_rep_doc(ProxyDoc),
+    Src = maps:get(?SOURCE, Rep),
+    Tgt = maps:get(?TARGET, Rep),
+    ?assertEqual(ProxyURL, maps:get(<<"proxy_url">>, Src)),
+    ?assertEqual(ProxyURL, maps:get(<<"proxy_url">>, Tgt)).
 
 
 parse_rep_source_target_proxy(_) ->
-    ?_test(begin
-        SrcProxyURL = <<"http://mysrcproxy.com">>,
-        TgtProxyURL = <<"http://mytgtproxy.com:9999">>,
-        ProxyDoc = {[
-            {<<"source">>, <<"http://unproxied.com">>},
-            {<<"target">>, <<"http://otherunproxied.com">>},
-            {<<"source_proxy">>, SrcProxyURL},
-            {<<"target_proxy">>, TgtProxyURL}
-        ]},
-        Rep = couch_replicator_parse:parse_rep_doc(ProxyDoc),
-        Src = maps:get(?SOURCE, Rep),
-        Tgt = maps:get(?TARGET, Rep),
-        ?assertEqual(SrcProxyURL, maps:get(<<"proxy_url">>, Src)),
-        ?assertEqual(TgtProxyURL, maps:get(<<"proxy_url">>, Tgt))
-    end).
+    SrcProxyURL = <<"http://mysrcproxy.com">>,
+    TgtProxyURL = <<"http://mytgtproxy.com:9999">>,
+    ProxyDoc = {[
+        {<<"source">>, <<"http://unproxied.com">>},
+        {<<"target">>, <<"http://otherunproxied.com">>},
+        {<<"source_proxy">>, SrcProxyURL},
+        {<<"target_proxy">>, TgtProxyURL}
+    ]},
+    Rep = couch_replicator_parse:parse_rep_doc(ProxyDoc),
+    Src = maps:get(?SOURCE, Rep),
+    Tgt = maps:get(?TARGET, Rep),
+    ?assertEqual(SrcProxyURL, maps:get(<<"proxy_url">>, Src)),
+    ?assertEqual(TgtProxyURL, maps:get(<<"proxy_url">>, Tgt)).
 
 
 mutually_exclusive_proxy_and_source_proxy(_) ->
-    ?_test(begin
-        ProxyDoc = {[
-            {<<"source">>, <<"http://unproxied.com">>},
-            {<<"target">>, <<"http://otherunproxied.com">>},
-            {<<"proxy">>, <<"oldstyleproxy.local">>},
-            {<<"source_proxy">>, <<"sourceproxy.local">>}
-        ]},
-        ?assertThrow({bad_rep_doc, _},
-            couch_replicator_parse:parse_rep_doc(ProxyDoc))
-    end).
+    ProxyDoc = {[
+        {<<"source">>, <<"http://unproxied.com">>},
+        {<<"target">>, <<"http://otherunproxied.com">>},
+        {<<"proxy">>, <<"oldstyleproxy.local">>},
+        {<<"source_proxy">>, <<"sourceproxy.local">>}
+    ]},
+    ?assertThrow({bad_rep_doc, _},
+        couch_replicator_parse:parse_rep_doc(ProxyDoc)).
 
 
 mutually_exclusive_proxy_and_target_proxy(_) ->
-    ?_test(begin
-        ProxyDoc = {[
-            {<<"source">>, <<"http://unproxied.com">>},
-            {<<"target">>, <<"http://otherunproxied.com">>},
-            {<<"proxy">>, <<"oldstyleproxy.local">>},
-            {<<"target_proxy">>, <<"targetproxy.local">>}
-        ]},
-        ?assertThrow({bad_rep_doc, _},
-            couch_replicator_parse:parse_rep_doc(ProxyDoc))
-    end).
+    ProxyDoc = {[
+        {<<"source">>, <<"http://unproxied.com">>},
+        {<<"target">>, <<"http://otherunproxied.com">>},
+        {<<"proxy">>, <<"oldstyleproxy.local">>},
+        {<<"target_proxy">>, <<"targetproxy.local">>}
+    ]},
+    ?assertThrow({bad_rep_doc, _},
+        couch_replicator_parse:parse_rep_doc(ProxyDoc)).
