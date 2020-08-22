@@ -598,12 +598,10 @@ set_job_val(Tx = {erlfdb_transaction, _}, Key, #jv{} = JV) ->
 get_job_or_halt(Tx, Key, JLock) ->
     case get_job_val(Tx, Key) of
         #jv{jlock = CurJLock} when CurJLock =/= JLock ->
-            couch_log:error("JJJJJ get_job_or_halt Cur:~p Exp:~p", [CurJLock, JLock]),
             halt;
         #jv{} = Res ->
             Res;
         not_found ->
-            couch_log:error("JJJJJ get_job_val not_found JLock:~p", [JLock]),
             halt
     end.
 

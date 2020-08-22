@@ -55,7 +55,10 @@ parse(#{} = Options) ->
         {undefined, _, undefined} ->
             {ok, {docids, DocIds}};
         {undefined, undefined, _} ->
-            {ok, {mango, ejsort(mango_selector:normalize(Selector))}};
+            % Translate it to proplist as normalize doesn't know how
+            % to handle maps
+            Selector1 = ?JSON_DECODE(?JSON_ENCODE(Selector)),
+            {ok, {mango, ejsort(mango_selector:normalize(Selector1))}};
         _ ->
             Err = "`selector`, `filter` and `doc_ids` are mutually exclusive",
             {error, list_to_binary(Err)}

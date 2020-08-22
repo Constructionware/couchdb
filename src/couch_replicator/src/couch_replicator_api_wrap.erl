@@ -412,9 +412,9 @@ changes_since(#httpdb{headers = Headers1, timeout = InactiveTimeout} = HttpDb,
     {undefined, undefined} ->
         QArgs1 = maybe_add_changes_filter_q_args(BaseQArgs, Options),
         {QArgs1, get, [], Headers1};
-    {undefined, _} when is_tuple(Selector) ->
+    {undefined, #{}} ->
         Headers2 = [{"Content-Type", "application/json"} | Headers1],
-        JsonSelector = ?JSON_ENCODE({[{<<"selector">>, Selector}]}),
+        JsonSelector = ?JSON_ENCODE(#{<<"selector">> => Selector}),
         {[{"filter", "_selector"} | BaseQArgs], post, JsonSelector, Headers2};
     {_, undefined} when is_list(DocIds) ->
         Headers2 = [{"Content-Type", "application/json"} | Headers1],

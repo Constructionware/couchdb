@@ -18,17 +18,17 @@
 
 
 setup(_) ->
-    Ctx = test_util:start_couch([fabric, couch_replicator]),
-    Source = create_db(),
+    Ctx = couch_replicator_test_helper:start_couch(),
+    Source = couch_replicator_test_helper:create_db(),
     create_docs(Source),
-    Target = create_db(),
+    Target = couch_replicator_test_helper:create_db(),
     {Ctx, {Source, Target}}.
 
 teardown(_, {Ctx, {Source, Target}}) ->
-    delete_db(Source),
-    delete_db(Target),
-    ok = application:stop(couch_replicator),
-    ok = test_util:stop_couch(Ctx).
+    couch_replicator_test_helper:delete_db(Source),
+    couch_replicator_test_helper:delete_db(Target),
+    couch_replicator_test_helper:stop_couch(Ctx).
+
 
 selector_replication_test_() ->
     Pairs = [{remote, remote}],
@@ -43,16 +43,12 @@ selector_replication_test_() ->
 
 should_succeed({From, To}, {_Ctx, {Source, Target}}) ->
     RepObject = {[
-        {<<"source">>, db_url(From, Source)},
-        {<<"target">>, db_url(To, Target)},
+        {<<"source">>, Source},
+        {<<"target">>, Target},
         {<<"selector">>, {[{<<"_id">>, <<"doc2">>}]}}
     ]},
-    {ok, _} = couch_replicator:replicate(RepObject, ?ADMIN_USER),
-    %% FilteredFun is an Erlang version of following mango selector
-    FilterFun = fun(_DocId, {Props}) ->
-        couch_util:get_value(<<"_id">>, Props) == <<"doc2">>
-    end,
-    {ok, TargetDbInfo, AllReplies} = compare_dbs(Source, Target, FilterFun),
+    {ok, _} = couch_replicator_test_helper:replicate(RepObject),
+    {ok, TargetDbInfo, AllReplies} = compare_dbs(Source, Target),
     {lists:flatten(io_lib:format("~p -> ~p", [From, To])), [
         {"Target DB has proper number of docs",
         ?_assertEqual(1, proplists:get_value(doc_count, TargetDbInfo))},
@@ -61,11 +57,12 @@ should_succeed({From, To}, {_Ctx, {Source, Target}}) ->
     ]}.
 
 
-compare_dbs(Source, Target, FilterFun) ->
-    {ok, TargetDbInfo} = fabirc2_db:get_db_info(Target),
+compare_dbs(Source, Target) ->
+    {ok, TargetDb} = fabric2_db:open(Target, []),
+    {ok, TargetDbInfo} = fabric2_db:get_db_info(TargetDb),
     Fun = fun(SrcDoc, TgtDoc, Acc) ->
-        case FilterFun(SrcDoc#doc.id, SrcDoc#doc.body) of
-            true -> [SrcDoc == TgtDoc | Acc];
+        case SrcDoc#doc.id == <<"doc2">> of
+            true -> [SrcDoc#doc.body == TgtDoc#doc.body | Acc];
             false -> [not_found == TgtDoc | Acc]
         end
     end,
@@ -73,21 +70,8 @@ compare_dbs(Source, Target, FilterFun) ->
     {ok, TargetDbInfo, Res}.
 
 
-create_db() ->
-    {ok, Db} = fabric2_db:create(?tempdb(), [?ADMIN_CTX]),
-    fabric2_db:name(Db).
-
-
 create_docs(DbName) ->
     couch_replicator_test_helper:create_docs(DbName, [
         #{<<"_id">> => <<"doc1">>},
         #{<<"_id">> => <<"doc2">>}
     ]).
-
-
-delete_db(DbName) ->
-    ok = fabric2_db:delete(DbName, [?ADMIN_CTX]).
-
-
-db_url(remote, DbName) ->
-    couch_replicator_test_helper:db_url(DbName).
