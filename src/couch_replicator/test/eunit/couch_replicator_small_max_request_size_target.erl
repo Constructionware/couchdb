@@ -3,44 +3,34 @@
 -include_lib("couch/include/couch_eunit.hrl").
 -include_lib("couch/include/couch_db.hrl").
 
--import(couch_replicator_test_helper, [
-    db_url/1,
-    replicate/1,
-    compare_dbs/3
-]).
 
 -define(TIMEOUT_EUNIT, 360).
 
 
 setup() ->
-    DbName = ?tempdb(),
-    {ok, Db} = couch_db:create(DbName, [?ADMIN_CTX]),
-    ok = couch_db:close(Db),
-    DbName.
+    couch_replicator_test_helper:create_db().
 
 
 setup(remote) ->
     {remote, setup()};
 
-setup({A, B}) ->
-    Ctx = test_util:start_couch([couch_replicator]),
+setup({_, _}) ->
+    Ctx = couch_replicator_test_helper:start_couch(),
     config:set("httpd", "max_http_request_size", "10000", false),
-    Source = setup(A),
-    Target = setup(B),
+    Source = couch_replicator_test_helper:create_db(),
+    Target = couch_replicator_test_helper:create_db(),
     {Ctx, {Source, Target}}.
 
 
 teardown({remote, DbName}) ->
     teardown(DbName);
 teardown(DbName) ->
-    ok = couch_server:delete(DbName, [?ADMIN_CTX]),
-    ok.
+    couch_replicator_test_helper:delete_db(DbName).
 
 teardown(_, {Ctx, {Source, Target}}) ->
     teardown(Source),
     teardown(Target),
-    ok = application:stop(couch_replicator),
-    ok = test_util:stop_couch(Ctx).
+    ok = couch_replicator_test_helper:stop_couch(Ctx).
 
 
 reduce_max_request_size_test_() ->
@@ -95,42 +85,21 @@ should_replicate_one_with_attachment({From, To}, {_Ctx, {Source, Target}}) ->
                should_compare_databases(Source, Target, [<<"doc0">>])]}}.
 
 
-should_populate_source({remote, Source}) ->
-    should_populate_source(Source);
-
 should_populate_source(Source) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(add_docs(Source, 5, 3000, 0))}.
 
-
-should_populate_source_one_large_one_small({remote, Source}) ->
-    should_populate_source_one_large_one_small(Source);
 
 should_populate_source_one_large_one_small(Source) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(one_large_one_small(Source, 12000, 3000))}.
 
 
-should_populate_source_one_large_attachment({remote, Source}) ->
-   should_populate_source_one_large_attachment(Source);
-
 should_populate_source_one_large_attachment(Source) ->
   {timeout, ?TIMEOUT_EUNIT, ?_test(one_large_attachment(Source, 70000, 70000))}.
 
 
-should_replicate({remote, Source}, Target) ->
-    should_replicate(db_url(Source), Target);
-
-should_replicate(Source, {remote, Target}) ->
-    should_replicate(Source, db_url(Target));
-
 should_replicate(Source, Target) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(replicate(Source, Target))}.
 
-
-should_compare_databases({remote, Source}, Target, ExceptIds) ->
-    should_compare_databases(Source, Target, ExceptIds);
-
-should_compare_databases(Source, {remote, Target}, ExceptIds) ->
-    should_compare_databases(Source, Target, ExceptIds);
 
 should_compare_databases(Source, Target, ExceptIds) ->
     {timeout, ?TIMEOUT_EUNIT, ?_test(compare_dbs(Source, Target, ExceptIds))}.
@@ -158,11 +127,10 @@ one_large_attachment(DbName, Size, AttSize) ->
 
 
 add_doc(DbName, DocId, Size, AttSize) when is_binary(DocId) ->
-     {ok, Db} = couch_db:open_int(DbName, []),
+     {ok, Db} = fabric2_db:open(DbName, [?ADMIN_CTX]),
      Doc0 = #doc{id = DocId, body = {[{<<"x">>, binary_chunk(Size)}]}},
      Doc = Doc0#doc{atts = atts(AttSize)},
-     {ok, _} = couch_db:update_doc(Db, Doc, []),
-     couch_db:close(Db).
+     {ok, _} = fabric2_db:update_doc(Db, Doc, []).
 
 
 atts(0) ->
@@ -178,8 +146,12 @@ atts(Size) ->
 
 
 replicate(Source, Target) ->
-    replicate({[
-        {<<"source">>, Source},
-        {<<"target">>, Target},
-        {<<"worker_processes">>, "1"} %  This make batch_size predictable
-    ]}).
+    couch_replicator_test_helper:replicate(#{
+        <<"source">> => Source,
+        <<"target">> => Target,
+        <<"worker_processes">> => 1  % This make batch_size predictable
+    }).
+
+
+compare_dbs(Source, Target, ExceptIds) ->
+    couch_replicator_test_helper:compare_dbs(Source, Target, ExceptIds).
